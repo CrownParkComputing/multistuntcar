@@ -388,6 +388,7 @@ static void DrawHorizon(long viewpoint_y, long viewpoint_x_angle, long viewpoint
 #define MAX_SCENERY_COORDS 7
 
 #define SCENERY_X_Y_SCALE_FACTOR 64 // (z of 0x00010000, divided by (4 * FOCUS))
+#define SCENERY_HORIZON_OVERLAP_PIXELS 4
 
 typedef struct {
     COORD_3D* coords;
@@ -605,14 +606,15 @@ static void DrawScenery(long viewpoint_y, long viewpoint_x_angle, long viewpoint
         // rotate scenery about x/y/z axis and perform perspective projection
         visible = TRUE;
         for (i = 0; i < number; i++) {
+            const bool is_ground_vertex = (scenery_coords[i].y == 0);
             x = scenery_coords[i].x * SCENERY_X_Y_SCALE_FACTOR;
             y = -(scenery_coords[i].y * SCENERY_X_Y_SCALE_FACTOR);
             z = scenery_coords[i].z;
 
             y -= ((viewpoint_y / 2) >> LOG_PRECISION); // 24/04/1998 - reduce using PC_FACTOR
 
-            // prevent sky showing through between scenery and ground
-            y += (2 * SCENERY_X_Y_SCALE_FACTOR);
+            // Legacy world-space nudge to avoid seam between scenery and ground.
+            y += SCENERY_X_Y_SCALE_FACTOR;
 
             // rotate about y axis
             trans_x = (x * cos_y) + (z * sin_y);
@@ -653,6 +655,11 @@ static void DrawScenery(long viewpoint_y, long viewpoint_x_angle, long viewpoint
 
             x = (trans_x / z) + screen_width / 2;
             y = (trans_y / z) + screen_height / 2;
+
+            // Push only the base of the mountains down slightly in screen space to
+            // guarantee overlap with the horizon fill across rasterizers.
+            if (is_ground_vertex)
+                y += SCENERY_HORIZON_OVERLAP_PIXELS;
 
             // store screen x and screen y
             screen_coords[i].x = x;
