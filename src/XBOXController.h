@@ -15,18 +15,17 @@
 #define XINPUT_STATE int
 
 // XBOX Controller Class Definition
-class CXBOXController
-{
-private:
-	XINPUT_STATE _controllerState;
-	int _controllerNum;
-public:
-	// ctor - playerNumber 1<>4
-	CXBOXController(const int playerNumber);
-	XINPUT_STATE GetState();
-	bool IsConnected();
-	void Vibrate(const unsigned short leftVal = 0, const unsigned short rightVal = 0);
+class CXBOXController {
+  private:
+    XINPUT_STATE _controllerState;
+    int _controllerNum;
+
+  public:
+    // ctor - playerNumber 1<>4
+    CXBOXController(const int playerNumber);
+    XINPUT_STATE GetState();
+    bool IsConnected();
+    void Vibrate(const unsigned short leftVal = 0, const unsigned short rightVal = 0);
 };
 
 #endif
-
