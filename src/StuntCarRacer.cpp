@@ -509,7 +509,10 @@ void SetTextureColour(long colour_index) { Fill_Colour = SCRGB(colour_index); }
 TTF_Font* g_pFont = NULL;
 TTF_Font* g_pFontLarge = NULL;
 float GetTextScale() {
-    return 1.0f; //TODO
+    const SurfaceDesc* desc = GetBackBufferSurfaceDesc();
+    if (!desc || desc->Height <= 0)
+        return 1.0f;
+    return static_cast<float>(desc->Height) / 480.0f;
 }
 GLuint g_pSprite = 0; // Texture for batching text calls
 // some helper functions....
@@ -519,11 +522,12 @@ void CreateFonts() {
         exit(1);
     }
 
+    // Load at 2x base size so the glyph texture is high-res; we scale quads to display size
     if (g_pFont == NULL) {
-        g_pFont = TTF_OpenFont("data/DejaVuSans-Bold.ttf", 15);
+        g_pFont = TTF_OpenFont("data/DejaVuSans-Bold.ttf", 36);
     }
     if (g_pFontLarge == NULL) {
-        g_pFontLarge = TTF_OpenFont("data/DejaVuSans-Bold.ttf", 25);
+        g_pFontLarge = TTF_OpenFont("data/DejaVuSans-Bold.ttf", 60);
     }
     if (g_pFont == NULL || g_pFontLarge == NULL) {
         printf("Could not load font data/DejaVuSans-Bold.ttf: %s\n", TTF_GetError());
@@ -1260,7 +1264,8 @@ void RenderText(double fTime) {
     // If NULL is passed in as the sprite object, then it will work fine however the
     // pFont->DrawText() will not be batched together.  Batching calls will improve perf.
     float textScale = GetTextScale();
-    static TextHelper txtHelper(g_pFont, g_pSprite, static_cast<int>(15 * textScale));
+    static TextHelper txtHelper(g_pFont, g_pSprite, 15);
+    txtHelper.SetDisplaySize(static_cast<int>(15 * textScale));
 
     // Output statistics
     txtHelper.Begin();

@@ -747,8 +747,9 @@ HRESULT VertexBuffer::Release() {
 TextHelper::TextHelper(TTF_Font* font, GLuint sprite, int size) : m_sprite(sprite), m_size(size), m_posx(0), m_posy(0) {
     // set colors
     m_forecol[0] = m_forecol[1] = m_forecol[2] = m_forecol[3] = 1.0f;
-    // setup texture
+    // setup texture (font is loaded at high pt size for sharp glyphs)
     m_fontsize = TTF_FontHeight(font);
+    m_displayScale = (m_fontsize > 0) ? (static_cast<float>(size) / static_cast<float>(m_fontsize)) : 1.0f;
     glGenTextures(1, &m_texture);
     glBindTexture(GL_TEXTURE_2D, m_texture);
     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -789,8 +790,13 @@ void TextHelper::SetInsertionPos(int x, int y) {
     m_posy = y;
 }
 
+void TextHelper::SetDisplaySize(int size) {
+    m_size = size;
+    m_displayScale = (m_fontsize > 0) ? (static_cast<float>(size) / static_cast<float>(m_fontsize)) : 1.0f;
+}
+
 void TextHelper::DrawTextLine(const wchar_t* line) {
-    // Draw it
+    // Draw it (scale quads by m_displayScale so high-res texture stays sharp)
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_TEXTURE_2D);
     glEnable(GL_BLEND);
@@ -804,15 +810,17 @@ void TextHelper::DrawTextLine(const wchar_t* line) {
     float posx = m_posx;
     while ((ch = line[i])) {
         float col = ch % 16, lin = ch / 16;
+        float w = m_as[ch] * m_displayScale;
+        float h = m_fontsize * m_displayScale;
         glTexCoord2f((col * m_fontsize + 0) * m_inv, (lin * m_fontsize + 0) * m_inv);
         glVertex2f(posx, m_posy);
         glTexCoord2f((col * m_fontsize + m_as[ch]) * m_inv, (lin * m_fontsize + 0) * m_inv);
-        glVertex2f(posx + m_as[ch], m_posy);
+        glVertex2f(posx + w, m_posy);
         glTexCoord2f((col * m_fontsize + m_as[ch]) * m_inv, (lin * m_fontsize + m_fontsize - 1) * m_inv);
-        glVertex2f(posx + m_as[ch], m_posy + m_fontsize);
+        glVertex2f(posx + w, m_posy + h);
         glTexCoord2f((col * m_fontsize + 0) * m_inv, (lin * m_fontsize + m_fontsize - 1) * m_inv);
-        glVertex2f(posx, m_posy + m_fontsize);
-        posx += m_as[ch];
+        glVertex2f(posx, m_posy + h);
+        posx += w;
         i++;
     }
     glEnd();

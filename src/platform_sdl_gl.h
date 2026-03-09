@@ -883,6 +883,7 @@ class TextHelper {
     TextHelper(TTF_Font* font, GLuint sprite, int size);
     ~TextHelper();
     void SetInsertionPos(int x, int y);
+    void SetDisplaySize(int size);  // update display size (e.g. when window scale changes)
     void DrawTextLine(const wchar_t* line);
     void DrawFormattedTextLine(const std::wstring& line);
     void Begin() {};
@@ -891,7 +892,8 @@ class TextHelper {
 
   private:
     GLuint m_sprite;
-    int m_size;
+    int m_size;           // display line height (for layout)
+    float m_displayScale; // display size / font texture size, for sharp scaling
     int m_fontsize;
     int m_posx, m_posy;
     float m_inv;
