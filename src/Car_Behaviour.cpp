@@ -539,6 +539,9 @@ void CarBehaviour(DWORD input, long* x, long* y, long* z, long* x_angle, long* y
 
 #define Y_ADJUSTMENT_THRESHOLD 0x480
 
+/* Minimum height above ground (same scale as player_y / road_height) to prevent crash penetration. */
+#define MIN_HEIGHT_ABOVE_GROUND 0x80
+
 void LimitViewpointY(long* y) {
     long saved_player_z_speed = player_z_speed;
     short sin_x, cos_x;
@@ -809,6 +812,17 @@ static void CarMovement(void) {
 
     UpdatePlayersWorldSpeed();
     UpdatePlayersPosition();
+
+    /* Clamp player slightly above ground so crashes don't penetrate. */
+    {
+        long min_road_height = front_left_road_height;
+        if (front_right_road_height < min_road_height)
+            min_road_height = front_right_road_height;
+        if (rear_road_height < min_road_height)
+            min_road_height = rear_road_height;
+        if (min_road_height != OFF_ROAD_HEIGHT && player_y < min_road_height + MIN_HEIGHT_ABOVE_GROUND)
+            player_y = min_road_height + MIN_HEIGHT_ABOVE_GROUND;
+    }
 
 #ifdef PLAY_AMIGA_RECORDING
     if (StartOfAmigaRecording) {
