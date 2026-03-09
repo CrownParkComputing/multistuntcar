@@ -95,6 +95,9 @@ extern bool bTestKey;
 
 #define LOCAL_Y_FACTOR 4
 
+/** Scale applied to integration deltas so motion per real second is correct for the current physics step rate. */
+static float g_physicsStepScale = 1.0f;
+
 /*    =========== */
 /*    Global data */
 /*    =========== */
@@ -440,8 +443,12 @@ extern long HalfALapPiece;
 
 long INITIALISE_PLAYER = TRUE;
 
-void CarBehaviour(DWORD input, long* x, long* y, long* z, long* x_angle, long* y_angle, long* z_angle) {
+void CarBehaviour(DWORD input, long* x, long* y, long* z, long* x_angle, long* y_angle, long* z_angle,
+                 float stepSeconds) {
     static long first_time = TRUE;
+
+    g_physicsStepScale =
+        (stepSeconds > 0.0f) ? (stepSeconds / (float)PHYSICS_REFERENCE_STEP_SECONDS) : 1.0f;
 
     // temporarily set player values to values provided when required
     if (INITIALISE_PLAYER) {
@@ -2646,13 +2653,13 @@ static void CalculateXZRotationAcceleration(void) {
 static void UpdatePlayersRotationSpeed(void) {
     long acceleration;
 
-    acceleration = ((player_x_rotation_acceleration * REDUCTION) >> 8);
+    acceleration = (long)((float)((player_x_rotation_acceleration * REDUCTION) >> 8) * g_physicsStepScale);
     player_x_rotation_speed += acceleration;
 
-    acceleration = ((player_y_rotation_acceleration * REDUCTION) >> 8);
+    acceleration = (long)((float)((player_y_rotation_acceleration * REDUCTION) >> 8) * g_physicsStepScale);
     player_y_rotation_speed += acceleration;
 
-    acceleration = ((player_z_rotation_acceleration * REDUCTION) >> 8);
+    acceleration = (long)((float)((player_z_rotation_acceleration * REDUCTION) >> 8) * g_physicsStepScale);
     player_z_rotation_speed += acceleration;
     return;
 }
@@ -2696,13 +2703,13 @@ static void CalculateFinalRotationSpeed(void) {
 static void UpdatePlayersWorldSpeed(void) {
     long acceleration;
 
-    acceleration = ((total_world_x_acceleration * REDUCTION) >> 8);
+    acceleration = (long)((float)((total_world_x_acceleration * REDUCTION) >> 8) * g_physicsStepScale);
     player_world_x_speed += acceleration;
 
-    acceleration = ((total_world_y_acceleration * REDUCTION) >> 8);
+    acceleration = (long)((float)((total_world_y_acceleration * REDUCTION) >> 8) * g_physicsStepScale);
     player_world_y_speed += acceleration;
 
-    acceleration = ((total_world_z_acceleration * REDUCTION) >> 8);
+    acceleration = (long)((float)((total_world_z_acceleration * REDUCTION) >> 8) * g_physicsStepScale);
     player_world_z_speed += acceleration;
     return;
 }
@@ -2723,28 +2730,26 @@ static void UpdatePlayersPosition(void) {
     // not sure yet why the speeds need the bottom bits clear anyway
     speed = ((player_world_x_speed * REDUCTION) >> 8);
     speed <<= 6;
-    // convert to PC StuntCarRacer magnitude
     speed *= (PC_FACTOR * 4);
-    player_x += speed;
+    player_x += (long)((float)speed * g_physicsStepScale);
 
     speed = ((player_world_y_speed * REDUCTION) >> 8);
     speed <<= 7; // not sure why this is different
-    player_y += speed;
+    player_y += (long)((float)speed * g_physicsStepScale);
 
     speed = ((player_world_z_speed * REDUCTION) >> 8);
     speed <<= 6;
-    // convert to PC StuntCarRacer magnitude
     speed *= (PC_FACTOR * 4);
-    player_z += speed;
+    player_z += (long)((float)speed * g_physicsStepScale);
 #else
     // 22/10/1998 - simplified the above
-    speed = ((player_world_x_speed * REDUCTION) * PC_FACTOR);
+    speed = (long)((float)((player_world_x_speed * REDUCTION) * PC_FACTOR) * g_physicsStepScale);
     player_x += speed;
 
-    speed = ((player_world_y_speed * REDUCTION) >> 1);
+    speed = (long)((float)((player_world_y_speed * REDUCTION) >> 1) * g_physicsStepScale);
     player_y += speed;
 
-    speed = ((player_world_z_speed * REDUCTION) * PC_FACTOR);
+    speed = (long)((float)((player_world_z_speed * REDUCTION) * PC_FACTOR) * g_physicsStepScale);
     player_z += speed;
 #endif
 
@@ -2753,13 +2758,13 @@ static void UpdatePlayersPosition(void) {
 
     //******** Set player's new angles ********
 
-    speed = ((player_final_x_rotation_speed * REDUCTION) >> 8);
+    speed = (long)((float)((player_final_x_rotation_speed * REDUCTION) >> 8) * g_physicsStepScale);
     player_x_angle += speed;
 
-    speed = ((player_final_y_rotation_speed * REDUCTION) >> 8);
+    speed = (long)((float)((player_final_y_rotation_speed * REDUCTION) >> 8) * g_physicsStepScale);
     player_y_angle += speed;
 
-    speed = ((player_final_z_rotation_speed * REDUCTION) >> 8);
+    speed = (long)((float)((player_final_z_rotation_speed * REDUCTION) >> 8) * g_physicsStepScale);
     player_z_angle += speed;
 
     // 19/05/1998 - limit to valid range as no longer stored as words

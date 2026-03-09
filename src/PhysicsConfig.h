@@ -4,6 +4,11 @@
 /**
  * Central tuning constants for vehicle suspension and car contact physics.
  *
+ * PHYSICS_UPDATE_HZ controls how many times per second the body-dynamics
+ * integrator (CarBehaviour / OpponentBehaviour) is stepped.  This is
+ * independent of the game-logic tick rate (~7.14 Hz).
+ * Default: 50 Hz  ->  20 ms integration step.  Change this define and rebuild.
+ *
  * The physics engine uses fixed-point integers, so parameters are integer
  * multipliers rather than physical Hz / ratios. The comments show what each
  * constant actually controls and which direction to move it.
@@ -11,6 +16,14 @@
  * All values here are wired directly into the physics code; change them and
  * rebuild to feel the effect.
  */
+
+#ifndef PHYSICS_UPDATE_HZ
+#define PHYSICS_UPDATE_HZ 7
+#endif
+
+/** Reference timestep (seconds) the integration was tuned for (original ~7.14 Hz logic tick).
+ *  Integrator deltas are scaled by (actual_step / PHYSICS_REFERENCE_STEP_SECONDS). */
+#define PHYSICS_REFERENCE_STEP_SECONDS 0.14
 
 /* ============================================================================
  * Front suspension  (front-left and front-right wheels)

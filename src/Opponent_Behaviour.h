@@ -15,7 +15,7 @@
 /*    External function declarations */
 /*    ============================== */
 extern void OpponentBehaviour(long* x, long* y, long* z, float* x_angle, float* y_angle, float* z_angle,
-                              bool bOpponentPaused);
+                              bool bOpponentPaused, float stepSeconds);
 
 extern void CarToCarCollision(void);
 

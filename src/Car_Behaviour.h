@@ -41,7 +41,8 @@ typedef enum { OPPONENT = 0, PLAYER, NUM_CARS } CarType;
 /*    ============================== */
 extern void ResetPlayer(void);
 
-extern void CarBehaviour(DWORD input, long* x, long* y, long* z, long* x_angle, long* y_angle, long* z_angle);
+extern void CarBehaviour(DWORD input, long* x, long* y, long* z, long* x_angle, long* y_angle, long* z_angle,
+                        float stepSeconds);
 
 extern void LimitViewpointY(long* y);
 

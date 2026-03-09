@@ -214,6 +214,9 @@ static long opponents_max_speed;
 static long opponents_z_speed;
 static bool opponents_required_z_speed_reached;
 
+/** Scale for integration deltas (stepSeconds / PHYSICS_REFERENCE_STEP_SECONDS). */
+static float g_physicsStepScale = 1.0f;
+
 /*    ===================== */
 /*    Function declarations */
 /*    ===================== */
@@ -351,7 +354,10 @@ extern long PlayersStartPiece;
 static long sx1, sy1, sz1, sx2, sy2, sz2, sx3, sy3, sz3, sx4, sy4, sz4;
 
 void OpponentBehaviour(long* x, long* y, long* z, float* x_angle, float* y_angle, float* z_angle,
-                       bool bOpponentPaused) {
+                       bool bOpponentPaused, float stepSeconds) {
+    g_physicsStepScale =
+        (stepSeconds > 0.0f) ? (stepSeconds / (float)PHYSICS_REFERENCE_STEP_SECONDS) : 1.0f;
+
     long opponent_x, opponent_y, opponent_z;
     float opponent_x_angle = 0.0f, opponent_y_angle = 0.0f, opponent_z_angle = 0.0f;
 
@@ -973,6 +979,7 @@ static void OpponentMovement(void) {
     value *= REDUCTION;
     value >>= 8;
     value <<= 3;
+    value = (long)((float)value * g_physicsStepScale);
     long byte = value & 0xff;
     value >>= 8;
     byte_count += byte;
@@ -1095,24 +1102,24 @@ static void UpdateOpponentsActualWheelHeights(void) {
     }
 
     // Update rear left wheel y speed and height
-    acceleration = ((opp_y_acceleration[REAR_LEFT] * REDUCTION) >> 8);
+    acceleration = (long)((float)((opp_y_acceleration[REAR_LEFT] * REDUCTION) >> 8) * g_physicsStepScale);
     opp_y_speed[REAR_LEFT] += acceleration;
 
-    speed = ((opp_y_speed[REAR_LEFT] * REDUCTION) >> 9);
+    speed = (long)((float)((opp_y_speed[REAR_LEFT] * REDUCTION) >> 9) * g_physicsStepScale);
     opp_actual_height[REAR_LEFT] += speed;
 
     // Update rear right wheel y speed and height
-    acceleration = ((opp_y_acceleration[REAR_RIGHT] * REDUCTION) >> 8);
+    acceleration = (long)((float)((opp_y_acceleration[REAR_RIGHT] * REDUCTION) >> 8) * g_physicsStepScale);
     opp_y_speed[REAR_RIGHT] += acceleration;
 
-    speed = ((opp_y_speed[REAR_RIGHT] * REDUCTION) >> 9);
+    speed = (long)((float)((opp_y_speed[REAR_RIGHT] * REDUCTION) >> 9) * g_physicsStepScale);
     opp_actual_height[REAR_RIGHT] += speed;
 
     // Update front wheel y speed and height
-    acceleration = ((opp_y_acceleration[FRONT] * REDUCTION) >> 8);
+    acceleration = (long)((float)((opp_y_acceleration[FRONT] * REDUCTION) >> 8) * g_physicsStepScale);
     opp_y_speed[FRONT] += acceleration;
 
-    speed = ((opp_y_speed[FRONT] * REDUCTION) >> 9);
+    speed = (long)((float)((opp_y_speed[FRONT] * REDUCTION) >> 9) * g_physicsStepScale);
     opp_actual_height[FRONT] += speed;
 
     // Limit movement of opponent's wheels
@@ -1576,7 +1583,7 @@ static void UpdateOpponentsZSpeed(void) {
         a += adjust;
     }
 
-    long acceleration = (a * REDUCTION) >> 8;
+    long acceleration = (long)((float)((a * REDUCTION) >> 8) * g_physicsStepScale);
     opponents_z_speed += acceleration;
     if (opponents_z_speed < 0)
         opponents_z_speed = 0;

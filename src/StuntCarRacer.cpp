@@ -46,10 +46,11 @@
 #define PERSPECTIVE_NEAR (5.0f)
 #define PERSPECTIVE_FAR  (131072.0f)
 static const double BASE_LOGIC_STEP_SECONDS = 0.14; // original coarse game step (~1/7.14s)
-static const int PHYSICS_SUBSTEPS_PER_BASE_LOGIC = 7;
-static const double PHYSICS_STEP_SECONDS = BASE_LOGIC_STEP_SECONDS / PHYSICS_SUBSTEPS_PER_BASE_LOGIC;
 /* Cap physics steps per frame to avoid catch-up stutter and spiral of death when the game can't keep up. */
 static const int MAX_PHYSICS_STEPS_PER_FRAME = 10;
+/* Body-dynamics integration rate from PHYSICS_UPDATE_HZ (PhysicsConfig.h). */
+static double g_physicsStepSeconds          = 1.0 / PHYSICS_UPDATE_HZ;
+static int    g_physicsSubstepsPerBaseLogic = static_cast<int>(BASE_LOGIC_STEP_SECONDS * PHYSICS_UPDATE_HZ + 0.5);
 
 GameModeType GameMode = TRACK_MENU;
 
@@ -919,7 +920,6 @@ static void StopEngineSound(void) {
 
 void CALLBACK OnFrameMove(RenderDevice* pDevice, double fTime, float fElapsedTime, void* pUserContext) {
     static glm::vec3 vUpVec(0.0f, 1.0f, 0.0f);
-    DWORD input = (GameMode == GAME_IN_PROGRESS) ? g_logicInput : lastInput;
     glm::mat4 matRot, matTemp, matTrans, matView;
     bFrameMoved = FALSE;
 
@@ -936,7 +936,7 @@ void CALLBACK OnFrameMove(RenderDevice* pDevice, double fTime, float fElapsedTim
         return;
 
     if ((GameMode == TRACK_PREVIEW) || (GameMode == GAME_IN_PROGRESS)) {
-        // Engine/audio is stepped from the 50Hz substep loop in RunFrame().
+        // Engine/audio is stepped from the physics substep loop in RunFrame().
     } else if (GameMode == TRACK_MENU) {
         // Stop engine sound if at track menu or if game has finished
         StopEngineSound();
@@ -953,17 +953,10 @@ void CALLBACK OnFrameMove(RenderDevice* pDevice, double fTime, float fElapsedTim
     if (!bPaused)
         MoveDrawBridge();
 
-    // Car behaviour
-    if ((GameMode == TRACK_PREVIEW) || (GameMode == GAME_IN_PROGRESS)) {
-        if (!bPaused) {
-            if ((GameMode == GAME_IN_PROGRESS) && (!bPlayerPaused))
-                CarBehaviour(input, &player1_x, &player1_y, &player1_z, &player1_x_angle, &player1_y_angle,
-                             &player1_z_angle);
-
-            OpponentBehaviour(&opponent_x, &opponent_y, &opponent_z, &opponent_x_angle, &opponent_y_angle,
-                              &opponent_z_angle, bOpponentPaused);
-        }
-
+    // CarBehaviour, OpponentBehaviour, and LimitViewpointY for GAME_IN_PROGRESS are
+    // now stepped in the physics substep loop inside RunFrame() at g_physicsStepSeconds
+    // intervals.  For TRACK_PREVIEW (no per-substep physics) the call stays here.
+    if (GameMode == TRACK_PREVIEW) {
         LimitViewpointY(&player1_y);
     }
 
@@ -1006,12 +999,9 @@ void CALLBACK OnFrameMove(RenderDevice* pDevice, double fTime, float fElapsedTim
         mat4LookAt(&matView, &vEyePt, &vLookatPt, &vUpVec);
         pDevice->SetTransform(TS_VIEW, &matView);
     } else if (GameMode == GAME_IN_PROGRESS) {
-        CalcGameViewpoint();
-
-        // Set Direct3D transforms, ready for OnFrameRender
-        viewpoint1_x >>= LOG_PRECISION;
-        // NOTE: viewpoint1_y must be preserved for use by DrawBackdrop
-        viewpoint1_z >>= LOG_PRECISION;
+        // CalcGameViewpoint() and viewpoint scaling are now done inside the
+        // per-substep physics block in RunFrame(), so viewpoint1_x/z are already
+        // in render-coordinate scale here.
 
         // Set the track's world transform matrix
         mat4Identity(&matWorldTrack);
@@ -1200,8 +1190,8 @@ static void HandleTrackPreview(TextHelper& txtHelper) {
         g_restartEngineAudioOnFirstInput = true;
         // Reduce start-of-race input/audio latency: make next substep trigger
         // a full logic tick immediately.
-        g_baseLogicSubstepCounter = PHYSICS_SUBSTEPS_PER_BASE_LOGIC - 1;
-        g_logicAccumulator = PHYSICS_STEP_SECONDS;
+        g_baseLogicSubstepCounter = g_physicsSubstepsPerBaseLogic - 1;
+        g_logicAccumulator = g_physicsStepSeconds;
         g_logicInput = lastInput;
         ResetControlSamplingWindow();
         // initialise game data
@@ -1253,7 +1243,7 @@ void RenderText(double fTime) {
     if (bShowStats) {
         txtHelper.SetInsertionPos(static_cast<int>((2 + (wideScreen ? 10 : 0)) * textScale), 0);
         txtHelper.DrawFormattedTextLine(L"fTime: %0.1f  sin(fTime): %0.4f", fTime, sin(fTime));
-        txtHelper.DrawFormattedTextLine(L"Render FPS: %5.1f  Physics: %5.1f Hz  Logic: %4.2f Hz", g_renderFpsDisplay,
+        txtHelper.DrawFormattedTextLine(L"Render FPS: %5.1f  Body: %5.1f Hz  Logic: %4.2f Hz", g_renderFpsDisplay,
                                         g_physicsTickRateDisplay, g_baseLogicTickRateDisplay);
         txtHelper.DrawFormattedTextLine(L"Ticks  Physics: %.0f  Logic: %.0f", static_cast<double>(g_physicsTickTotal),
                                         static_cast<double>(g_baseLogicTickTotal));
@@ -1908,43 +1898,75 @@ static bool RunFrame(double frameTime, bool allowQuit) {
     g_lastFrameTime = frameTime;
     g_logicAccumulator += frameDelta;
     /* Clamp accumulator so we never run more than MAX_PHYSICS_STEPS_PER_FRAME per frame; drop excess time to avoid spiral of death. */
-    const double maxAccumulator = MAX_PHYSICS_STEPS_PER_FRAME * PHYSICS_STEP_SECONDS;
+    const double maxAccumulator = MAX_PHYSICS_STEPS_PER_FRAME * g_physicsStepSeconds;
     if (g_logicAccumulator > maxAccumulator)
         g_logicAccumulator = maxAccumulator;
 
     bool anyLogicFrameMoved = false;
     int stepsThisFrame = 0;
-    while (g_logicAccumulator >= PHYSICS_STEP_SECONDS && stepsThisFrame < MAX_PHYSICS_STEPS_PER_FRAME) {
-        g_logicAccumulator -= PHYSICS_STEP_SECONDS;
+    while (g_logicAccumulator >= g_physicsStepSeconds && stepsThisFrame < MAX_PHYSICS_STEPS_PER_FRAME) {
+        g_logicAccumulator -= g_physicsStepSeconds;
         ++stepsThisFrame;
         ++g_physicsTicksInWindow;
         ++g_physicsTickTotal;
+
+        // --- Audio (once per physics step) ---
         if ((GameMode == GAME_IN_PROGRESS) && (!bPaused)) {
             const DWORD drivingInputMask = KEY_P1_LEFT | KEY_P1_RIGHT | KEY_P1_ACCEL | KEY_P1_BRAKE | KEY_P1_BOOST;
             if (g_restartEngineAudioOnFirstInput) {
                 // Keep engine audio fully silent until the first gameplay input,
                 // but continue advancing engine state so revs are prewarmed.
-                StepEngineAudioStateSubstep(PHYSICS_SUBSTEPS_PER_BASE_LOGIC);
+                StepEngineAudioStateSubstep(g_physicsSubstepsPerBaseLogic);
                 if ((lastInput & drivingInputMask) != 0) {
                     RestartEngineAudioBuffers(false);
                     PrimeEngineAudioForGameplayStart();
                     g_restartEngineAudioOnFirstInput = false;
-                    FramesWheelsEngineSubstep(EngineSoundBuffers, PHYSICS_SUBSTEPS_PER_BASE_LOGIC);
+                    FramesWheelsEngineSubstep(EngineSoundBuffers, g_physicsSubstepsPerBaseLogic);
                 } else if (engineSoundPlaying) {
                     RestartEngineAudioBuffers(false);
                 }
             } else {
-                FramesWheelsEngineSubstep(EngineSoundBuffers, PHYSICS_SUBSTEPS_PER_BASE_LOGIC);
+                FramesWheelsEngineSubstep(EngineSoundBuffers, g_physicsSubstepsPerBaseLogic);
             }
         }
+
+        // --- Input sampling (once per physics step) ---
         SampleControlsForLogicSubstep(lastInput);
 
+        // --- Body-dynamics integrator (once per physics step, decoupled from game logic) ---
+        if ((GameMode == TRACK_PREVIEW) || (GameMode == GAME_IN_PROGRESS)) {
+            if (!bPaused) {
+                CapturePreviousCarState();
+                if ((GameMode == GAME_IN_PROGRESS) && (!bPlayerPaused))
+                    CarBehaviour(lastInput, &player1_x, &player1_y, &player1_z, &player1_x_angle,
+                                 &player1_y_angle, &player1_z_angle, (float)g_physicsStepSeconds);
+                OpponentBehaviour(&opponent_x, &opponent_y, &opponent_z, &opponent_x_angle,
+                                  &opponent_y_angle, &opponent_z_angle, bOpponentPaused,
+                                  (float)g_physicsStepSeconds);
+            }
+            if (GameMode == GAME_IN_PROGRESS) {
+                // Snap the car back above the road surface before computing the camera.
+                // This must happen here (post-integration, pre-viewpoint) so the corrected
+                // player1_y feeds into both CalcGameViewpoint and the next substep's prev state.
+                LimitViewpointY(&player1_y);
+                if (!bPaused) {
+                    // Recompute camera position from corrected car state and scale to
+                    // render coordinates so UpdateInterpolatedCarTransforms can
+                    // smoothly lerp the viewpoint at the full physics rate.
+                    CalcGameViewpoint();
+                    viewpoint1_x >>= LOG_PRECISION;
+                    // NOTE: viewpoint1_y must be preserved (unshifted) for DrawBackdrop
+                    viewpoint1_z >>= LOG_PRECISION;
+                }
+            }
+        }
+
+        // --- Game-logic tick (every g_physicsSubstepsPerBaseLogic physics steps) ---
         ++g_baseLogicSubstepCounter;
-        if (g_baseLogicSubstepCounter >= PHYSICS_SUBSTEPS_PER_BASE_LOGIC) {
+        if (g_baseLogicSubstepCounter >= g_physicsSubstepsPerBaseLogic) {
             g_baseLogicSubstepCounter = 0;
             g_logicInput = BuildLogicInputFromSamples(lastInput);
             ResetControlSamplingWindow();
-            CapturePreviousCarState();
             OnFrameMove(&pDevice, frameTime, static_cast<float>(BASE_LOGIC_STEP_SECONDS), NULL);
             ++g_baseLogicTicksInWindow;
             ++g_baseLogicTickTotal;
@@ -1955,10 +1977,10 @@ static bool RunFrame(double frameTime, bool allowQuit) {
     bFrameMoved = anyLogicFrameMoved;
 
     if ((GameMode == TRACK_MENU) || (GameMode == TRACK_PREVIEW) || (GameMode == GAME_IN_PROGRESS)) {
-        const double substepFraction = g_logicAccumulator / PHYSICS_STEP_SECONDS;
-        const double baseProgress = (static_cast<double>(g_baseLogicSubstepCounter) + substepFraction) /
-                                    static_cast<double>(PHYSICS_SUBSTEPS_PER_BASE_LOGIC);
-        const float alpha = static_cast<float>(baseProgress);
+        // Alpha is the fractional time remaining in the current physics step.
+        // Since CapturePreviousCarState() is called once per physics step, this
+        // correctly interpolates between the last two integration states.
+        const float alpha = static_cast<float>(g_logicAccumulator / g_physicsStepSeconds);
         UpdateInterpolatedCarTransforms(&pDevice, alpha);
         if ((GameMode == TRACK_PREVIEW) || (GameMode == GAME_IN_PROGRESS))
             UpdateInterpolatedOpponentShadow(alpha);
