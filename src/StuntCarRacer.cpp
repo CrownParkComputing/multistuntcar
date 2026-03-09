@@ -1131,7 +1131,7 @@ static void HandleTrackMenu(TextHelper& txtHelper) {
     }
     txtHelper.SetInsertionPos(static_cast<int>((2 + (wideScreen ? 10 : 0)) * textScale),
                               static_cast<int>(pd3dsdBackBuffer->Height - 15 * 8 * textScale));
-    txtHelper.DrawTextLine(L"Left/Right or D-pad = change track.  Enter or A = select.  Escape or B = quit.");
+    txtHelper.DrawTextLine(L"Left/Right or D-pad = change track.  Enter or A = select.  Escape = quit.");
     txtHelper.DrawTextLine(L"'L' to switch Super League On/Off");
 
     const bool goPrev = (keyPress == SDLK_LEFT);
@@ -1861,9 +1861,7 @@ bool process_events() {
                     } else
                         keyPress = SDLK_RETURN;
                 } else if (btn == SDL_CONTROLLER_BUTTON_B || btn == SDL_CONTROLLER_BUTTON_BACK) {
-                    /* B or Select (Back) = Back (Xbox standard) - perform same action as M key */
-                    if (GameMode == TRACK_MENU)
-                        return false; /* quit */
+                    /* B or Select (Back) = back to menu from preview/game over; never quit */
                     if (GameMode == TRACK_PREVIEW || GameMode == GAME_OVER) {
                         GameMode = TRACK_MENU;
                         g_restartEngineAudioOnFirstInput = false;
