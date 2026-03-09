@@ -824,13 +824,8 @@ void TextHelper::DrawTextLine(const wchar_t* line) {
     glEnable(GL_DEPTH_TEST);
 }
 
-void TextHelper::DrawFormattedTextLine(const wchar_t* line, ...) {
-    wchar_t buff[1000];
-    va_list args;
-    va_start(args, line);
-    vswprintf(buff, 1000, line, args);
-    DrawTextLine(buff);
-    va_end(args);
+void TextHelper::DrawFormattedTextLine(const std::wstring& line) {
+    DrawTextLine(line.c_str());
 }
 
 void TextHelper::SetForegroundColor(glm::vec4 clr) {

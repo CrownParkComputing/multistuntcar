@@ -38,6 +38,7 @@
 #include <SDL/SDL_image.h>
 #endif
 #include <wchar.h>
+#include <string>
 
 #if defined(_WIN32)
 #define wcscasecmp _wcsicmp
@@ -883,7 +884,7 @@ class TextHelper {
     ~TextHelper();
     void SetInsertionPos(int x, int y);
     void DrawTextLine(const wchar_t* line);
-    void DrawFormattedTextLine(const wchar_t* line, ...);
+    void DrawFormattedTextLine(const std::wstring& line);
     void Begin() {};
     void End() {};
     void SetForegroundColor(glm::vec4 clr);

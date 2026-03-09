@@ -8,6 +8,9 @@
 
 #include "platform_sdl_gl.h"
 
+#include <iomanip>
+#include <sstream>
+
 #include "StuntCarRacer.h"
 #include "3D_Engine.h"
 #include "Backdrop.h"
@@ -1107,7 +1110,9 @@ static void HandleTrackMenu(TextHelper& txtHelper) {
     txtHelper.DrawTextLine(L"Choose track :-");
 
     for (i = 0, firstMenuOption = FIRSTMENU; i < NUM_TRACKS; i++) {
-        txtHelper.DrawFormattedTextLine(L"'%d' -  " STRING, (i + 1), GetTrackName(i));
+        std::wstringstream ss;
+        ss << L"'"<< (i + 1) << L"' - " << GetTrackName(i);
+        txtHelper.DrawFormattedTextLine(ss.str());
     }
     lastMenuOption = i + FIRSTMENU - 1;
 
@@ -1115,8 +1120,12 @@ static void HandleTrackMenu(TextHelper& txtHelper) {
     const SurfaceDesc* pd3dsdBackBuffer = GetBackBufferSurfaceDesc();
     txtHelper.SetInsertionPos(static_cast<int>((2 + (wideScreen ? 10 : 0)) * textScale),
                               static_cast<int>(pd3dsdBackBuffer->Height - 15 * 8 * textScale));
-    txtHelper.DrawFormattedTextLine(L"Current track - " STRING L".  Press 'S' to select, Escape to quit",
-                                    (TrackID == NO_TRACK ? L"None" : GetTrackName(TrackID)));
+    {
+        std::wstringstream ss;
+        ss << L"Current track - " << (TrackID == NO_TRACK ? L"None" : GetTrackName(TrackID))
+           << L".  Press 'S' to select, Escape to quit";
+        txtHelper.DrawFormattedTextLine(ss.str());
+    }
     txtHelper.DrawTextLine(L"'L' to switch Super League On/Off");
 
     if (((keyPress >= firstMenuOption) && (keyPress <= lastMenuOption)) || (keyPress == LEAGUEMENU)) {
@@ -1177,8 +1186,12 @@ static void HandleTrackPreview(TextHelper& txtHelper) {
     float textScale = GetTextScale();
     txtHelper.SetInsertionPos(static_cast<int>((2 + (wideScreen ? 10 : 0)) * textScale),
                               static_cast<int>(pd3dsdBackBuffer->Height - 15 * 9 * textScale));
-    txtHelper.DrawFormattedTextLine(L"Selected track - " STRING L".  Press 'S' to start game",
-                                    (TrackID == NO_TRACK ? L"None" : GetTrackName(TrackID)));
+    {
+        std::wstringstream ss;
+        ss << L"Selected track - " << (TrackID == NO_TRACK ? L"None" : GetTrackName(TrackID))
+           << L".  Press 'S' to start game";
+        txtHelper.DrawFormattedTextLine(ss.str());
+    }
     txtHelper.DrawTextLine(L"'M' for track menu, Escape to quit");
     txtHelper.DrawTextLine(L"(Press F4 to change scenery)");
 
@@ -1254,15 +1267,35 @@ void RenderText(double fTime) {
     txtHelper.SetForegroundColor(glm::vec4(1.0f, 1.0f, 0.0f, 1.0f));
     if (bShowStats) {
         txtHelper.SetInsertionPos(static_cast<int>((2 + (wideScreen ? 10 : 0)) * textScale), 0);
-        txtHelper.DrawFormattedTextLine(L"fTime: %0.1f  sin(fTime): %0.4f", fTime, sin(fTime));
-        txtHelper.DrawFormattedTextLine(L"Render FPS: %5.1f  Body: %5.1f Hz  Logic: %4.2f Hz", g_renderFpsDisplay,
-                                        g_physicsTickRateDisplay, g_baseLogicTickRateDisplay);
-        txtHelper.DrawFormattedTextLine(L"Ticks  Physics: %.0f  Logic: %.0f", static_cast<double>(g_physicsTickTotal),
-                                        static_cast<double>(g_baseLogicTickTotal));
+        {
+            std::wstringstream ss;
+            ss << std::fixed << L"fTime: " << std::setprecision(1) << fTime << L"  sin(fTime): "
+               << std::setprecision(4) << sin(fTime);
+            txtHelper.DrawFormattedTextLine(ss.str());
+        }
+        {
+            std::wstringstream ss;
+            ss << std::fixed << L"Render FPS: " << std::setprecision(1) << g_renderFpsDisplay
+               << L"  Body: " << std::setprecision(1) << g_physicsTickRateDisplay << L" Hz  Logic: "
+               << std::setprecision(2) << g_baseLogicTickRateDisplay << L" Hz";
+            txtHelper.DrawFormattedTextLine(ss.str());
+        }
+        {
+            std::wstringstream ss;
+            ss << std::fixed << std::setprecision(0)
+               << L"Ticks  Physics: " << g_physicsTickTotal << L"  Logic: " << g_baseLogicTickTotal;
+            txtHelper.DrawFormattedTextLine(ss.str());
+        }
 
 #if defined(DEBUG) || defined(_DEBUG)
         // Output VALUE1, VALUE, VALUE3
-        txtHelper.DrawFormattedTextLine(L"V1: %08x, V2: %08x, V3: %08x", VALUE1, VALUE2, VALUE3);
+        {
+            std::wstringstream ss;
+            ss << std::hex << std::setfill(L'0')
+               << L"V1: " << std::setw(8) << VALUE1 << L", V2: " << std::setw(8) << VALUE2
+               << L", V3: " << std::setw(8) << VALUE3;
+            txtHelper.DrawFormattedTextLine(ss.str());
+        }
 #else
         // Output version
         txtHelper.DrawTextLine(L"Version 1.0");
@@ -1289,7 +1322,11 @@ void RenderText(double fTime) {
         if (((GetTimeSeconds() - gameStartTime) < 4.0) && (opponentsID != NO_OPPONENT)) {
             txtHelper.SetInsertionPos(static_cast<int>((250 + (wideScreen ? 80 : 0)) * textScale),
                                       static_cast<int>(pd3dsdBackBuffer->Height - 15 * 20 * textScale));
-            txtHelper.DrawFormattedTextLine(L"Opponent: " STRING, opponentNames[opponentsID]);
+            {
+                std::wstringstream ss;
+                ss << L"Opponent: " << opponentNames[opponentsID];
+                txtHelper.DrawFormattedTextLine(ss.str());
+            }
         }
         txtHelper.SetInsertionPos(static_cast<int>((2 + (wideScreen ? 80 : 0)) * textScale),
                                   static_cast<int>(pd3dsdBackBuffer->Height - 15 * 2 * textScale));
@@ -1304,11 +1341,20 @@ void RenderText(double fTime) {
         // Boost text - positioned in top dashboard box
         txtHelper.SetInsertionPos(static_cast<int>((88 + (wideScreen ? 80 : 0)) * textScale),
                                   static_cast<int>((BASE_HEIGHT - 48.0f) * scaleY));
-        txtHelper.DrawFormattedTextLine(L"L" STRING L"       B%02d", lapText,
-                                        boostReserve); // Distance text - positioned in bottom dashboard box
+        {
+            std::wstringstream ss;
+            ss << L"L" << lapText << L"       B" << std::setw(2) << std::setfill(L'0') << boostReserve;
+            txtHelper.DrawFormattedTextLine(ss.str());
+        }
+        // Distance text - positioned in bottom dashboard box
         txtHelper.SetInsertionPos(static_cast<int>((84 + (wideScreen ? 80 : 0)) * textScale),
                                   static_cast<int>((BASE_HEIGHT - 25.0f) * scaleY));
-        txtHelper.DrawFormattedTextLine(L"        %+05d", CalculateOpponentsDistance());
+        {
+            std::wstringstream ss;
+            ss << L"        " << std::showpos << std::setw(5) << std::setfill(L'0')
+               << CalculateOpponentsDistance();
+            txtHelper.DrawFormattedTextLine(ss.str());
+        }
 
         txtHelper.End();
 
