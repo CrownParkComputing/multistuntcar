@@ -46,20 +46,45 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 if(EMSCRIPTEN)
+  # Output .html so the shell (package/template.html) is used and build dir has a runnable page.
+  set(CMAKE_EXECUTABLE_SUFFIX ".html")
+
+  # Required at compile time so real SDL headers are used instead of fakesdl stubs.
+  target_compile_options(stuntcarracer PRIVATE
+    "SHELL:-sUSE_SDL=2"
+    "SHELL:-sUSE_SDL_TTF=2"
+  )
   target_link_options(stuntcarracer PRIVATE
-    "SHELL:-s FULL_ES2=1"
+    "SHELL:-s LEGACY_GL_EMULATION=1"
     "SHELL:-s USE_SDL=2"
     "SHELL:-s USE_SDL_TTF=2"
     "SHELL:--emrun"
   )
+
+  # glm headers for Emscripten (no system SDL/glm, so fetch glm).
+  include(FetchContent)
+  set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
+  set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    glm
+    GIT_REPOSITORY https://github.com/g-truc/glm.git
+    GIT_TAG 0.9.9.8
+    GIT_SHALLOW TRUE
+  )
+  FetchContent_MakeAvailable(glm)
+  if(TARGET glm::glm)
+    target_link_libraries(stuntcarracer PRIVATE glm::glm)
+  else()
+    target_include_directories(stuntcarracer PRIVATE ${glm_SOURCE_DIR})
+  endif()
 
   if(STUNT_ENABLE_WEB_ASSETS)
     target_link_options(stuntcarracer PRIVATE
       "SHELL:--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/data/Tracks@/data/Tracks"
       "SHELL:--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/data/Sounds@/data/Sounds"
       "SHELL:--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/data/Bitmap@/data/Bitmap"
-      "SHELL:--embed-file ${CMAKE_CURRENT_SOURCE_DIR}/data/DejaVuSans-Bold.ttf@/data/DejaVuSans-Bold.ttf"
-      "SHELL:--shell-file ${CMAKE_CURRENT_SOURCE_DIR}/template.html"
+      "SHELL:--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/data/DejaVuSans-Bold.ttf@/data/DejaVuSans-Bold.ttf"
+      "SHELL:--shell-file ${CMAKE_CURRENT_SOURCE_DIR}/package/template.html"
     )
   endif()
 else()

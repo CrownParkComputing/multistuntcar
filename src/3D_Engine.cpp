@@ -705,7 +705,9 @@ void ZClip(COORD_3D* below, // transformed co-ordinate below boundary (i.e. near
 
     // clip to boundary z = Z_CLIP_BOUNDARY
     if ((zoff - zon) == 0) {
+#if defined(DEBUG) || defined(_DEBUG)
         fprintf(out, "6.  Preventing division by zero\n");
+#endif
         //Sleep(10);
 
         ++zoff;

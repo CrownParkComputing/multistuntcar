@@ -2158,7 +2158,6 @@ static bool RunFrame(double frameTime, bool allowQuit) {
 }
 
 #ifdef __EMSCRIPTEN__
-extern "C" void initialize_gl4es();
 void em_main_loop() {
     RunFrame(GetTimeSeconds(), false);
 }
@@ -2166,9 +2165,6 @@ void em_main_loop() {
 
 int GL_MSAA = 0;
 int main(int argc, const char** argv) {
-#ifdef __EMSCRIPTEN__
-    initialize_gl4es();
-#endif
     char maintitle[50] = {0};
     sprintf(maintitle, "StuntCarRemake v%d.%02d.%02d", V_MAJOR, V_MINOR, V_PATCH);
     printf("%s\n", maintitle);

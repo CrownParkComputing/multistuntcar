@@ -47,15 +47,9 @@
 #ifdef USEGLM
 #define GLM_FORCE_RADIANS
 //#define GLM_LEFT_HANDED
-#ifdef __EMSCRIPTEN__
-#include <../glm/glm.hpp>
-#include <../glm/gtc/type_ptr.hpp>
-#include <../glm/gtc/matrix_transform.hpp>
-#else
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#endif
 #else
 #include "matvec.h"
 #endif
