@@ -1117,8 +1117,13 @@ static void HandleTrackMenu(TextHelper& txtHelper) {
     float textScale = GetTextScale();
     const SurfaceDesc* pd3dsdBackBuffer = GetBackBufferSurfaceDesc();
 
+    txtHelper.SetDisplaySize(static_cast<int>(30 * textScale));
     txtHelper.SetInsertionPos(static_cast<int>((2 + (wideScreen ? 10 : 0)) * textScale),
-                              static_cast<int>(15 * 8 * textScale));
+                              static_cast<int>(15 * 4 * textScale));
+    txtHelper.DrawTextLine(L"Stunt Car Racer Remake - Alpha Version - WIP");
+    txtHelper.SetDisplaySize(static_cast<int>(15 * textScale));
+    txtHelper.SetInsertionPos(static_cast<int>((2 + (wideScreen ? 10 : 0)) * textScale),
+                              static_cast<int>(15 * 9 * textScale));
     {
         std::wstringstream ss;
         ss << L"Track: " << (TrackID == NO_TRACK ? L"None" : GetTrackName(TrackID));
