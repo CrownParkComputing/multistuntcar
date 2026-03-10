@@ -60,7 +60,10 @@ static long ClipLine(long* x1ptr, long* y1ptr, long* x2ptr, long* y2ptr, long sc
 /*    ======================================================================================= */
 
 void DrawBackdrop(long viewpoint_y, long viewpoint_x_angle, long viewpoint_y_angle, long viewpoint_z_angle) {
+    (void)viewpoint_y;
+    (void)viewpoint_x_angle;
     (void)viewpoint_y_angle;
+    (void)viewpoint_z_angle;
     /* Clear screen to sky colour first so any unfilled pixels match the backdrop */
     {
         const DWORD sky = SCRGB(SKY_COLOUR);
@@ -70,8 +73,6 @@ void DrawBackdrop(long viewpoint_y, long viewpoint_x_angle, long viewpoint_y_ang
         glClearColor(r, g, b, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     }
-
-    DrawHorizon(viewpoint_y, viewpoint_x_angle, viewpoint_z_angle);
 }
 
 void DrawBackdropScenery3D(RenderDevice* pDevice) { DrawScenery3D(pDevice); }
@@ -292,8 +293,8 @@ static void DrawHorizon(long viewpoint_y, long viewpoint_x_angle, long viewpoint
 
 #define SCENERY_X_Y_SCALE_FACTOR 64 // (z of 0x00010000, divided by (4 * FOCUS))
 #define SCENERY_WORLD_RING_OFFSET 45000
-#define SCENERY_WORLD_BASE_Y (TRACK_BOTTOM_Y - 8)
-#define SCENERY_BASE_VERTEX_DROP_PERCENT 0.15f
+#define SCENERY_WORLD_BASE_Y (TRACK_BOTTOM_Y - 16)
+#define SCENERY_BASE_VERTEX_DROP_PERCENT 0.0f
 #define MAX_SCENERY_3D_VERTICES 4096
 
 typedef struct {
@@ -315,7 +316,7 @@ static void DrawScenery3D(RenderDevice* pDevice) {
     if ((pScenery3DVB == NULL) || (scenery3DVertexCount <= 0))
         return;
 
-    pDevice->SetRenderState(RS_ZENABLE, FALSE);
+    pDevice->SetRenderState(RS_ZENABLE, TRUE);
     pDevice->SetRenderState(RS_CULLMODE, CULL_NONE);
     pDevice->SetTextureStageState(0, TSS_COLOROP, TOP_DISABLE);
     pDevice->SetStreamSource(0, pScenery3DVB, 0, sizeof(UTVERTEX));
