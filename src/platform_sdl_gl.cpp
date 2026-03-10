@@ -343,9 +343,12 @@ constexpr GLuint ATTRIB_TEXCOORD = 2;
 constexpr float SCREEN_VIRTUAL_HEIGHT = 480.0f;
 constexpr float SCREEN_NEAR_Z = -1.0f;
 constexpr float SCREEN_FAR_Z = 1.0f;
-constexpr float FOG_DENSITY = 0.00002f;
+constexpr float FOG_DENSITY = 0.00001f;
+constexpr float FOG_HEIGHT_SCALE = 15.0f;
+constexpr float FOG_SKY_COLOR_R = 0.7f;
+constexpr float FOG_SKY_COLOR_G = 0.6f;
+constexpr float FOG_SKY_COLOR_B = 0.5f;
 constexpr float INV_SQRT2 = 0.70710678118f;
-constexpr long SKY_COLOUR_INDEX = 26 + 7;
 
 #if !defined(HAVE_GLES) && !defined(__EMSCRIPTEN__)
 struct GLFunctions {
@@ -518,13 +521,22 @@ static GLuint BuildShaderProgram() {
         "uniform int uColorMode;\n"
         "uniform int uFogEnabled;\n"
         "uniform float uFogDensity;\n"
+        "uniform float uFogHeightScale;\n"
         "uniform vec3 uFogSkyColor;\n"
         "uniform vec3 uSunDirView;\n"
+        "uniform vec3 uCameraPos;\n"
+        "uniform vec3 uWorldUpView;\n"
         "varying vec4 vColor;\n"
         "varying vec2 vTexCoord;\n"
         "varying vec3 vViewPos;\n"
         "vec3 applyFog(in vec3 col, in float t, in vec3 rd, in vec3 lig) {\n"
-        "  float fogAmount = 1.0 - exp(-t * uFogDensity);\n"
+        "  float a = uFogDensity;\n"
+        "  float b = uFogDensity * uFogHeightScale;\n"
+        "  vec3 ro = uCameraPos;\n"
+        "  float rdY = dot(rd, normalize(uWorldUpView));\n"
+        "  float safeRdY = (abs(rdY) < 0.0001) ? ((rdY < 0.0) ? -0.0001 : 0.0001) : rdY;\n"
+        "  float fogAmount = (a / b) * exp(-ro.y * b) * (1.0 - exp(-t * safeRdY * b)) / safeRdY;\n"
+        "  fogAmount = clamp(fogAmount, 0.0, 1.0);\n"
         "  float sunAmount = max(dot(rd, lig), 0.0);\n"
         "  vec3 fogColor = mix(uFogSkyColor, vec3(1.0, 0.9, 0.7), pow(sunAmount, 8.0));\n"
         "  return mix(col, fogColor, fogAmount);\n"
@@ -570,13 +582,22 @@ static GLuint BuildShaderProgram() {
         "uniform int uColorMode;\n"
         "uniform int uFogEnabled;\n"
         "uniform float uFogDensity;\n"
+        "uniform float uFogHeightScale;\n"
         "uniform vec3 uFogSkyColor;\n"
         "uniform vec3 uSunDirView;\n"
+        "uniform vec3 uCameraPos;\n"
+        "uniform vec3 uWorldUpView;\n"
         "varying vec4 vColor;\n"
         "varying vec2 vTexCoord;\n"
         "varying vec3 vViewPos;\n"
         "vec3 applyFog(in vec3 col, in float t, in vec3 rd, in vec3 lig) {\n"
-        "  float fogAmount = 1.0 - exp(-t * uFogDensity);\n"
+        "  float a = uFogDensity;\n"
+        "  float b = uFogDensity * uFogHeightScale;\n"
+        "  vec3 ro = uCameraPos;\n"
+        "  float rdY = dot(rd, normalize(uWorldUpView));\n"
+        "  float safeRdY = (abs(rdY) < 0.0001) ? ((rdY < 0.0) ? -0.0001 : 0.0001) : rdY;\n"
+        "  float fogAmount = (a / b) * exp(-ro.y * b) * (1.0 - exp(-t * safeRdY * b)) / safeRdY;\n"
+        "  fogAmount = clamp(fogAmount, 0.0, 1.0);\n"
         "  float sunAmount = max(dot(rd, lig), 0.0);\n"
         "  vec3 fogColor = mix(uFogSkyColor, vec3(1.0, 0.9, 0.7), pow(sunAmount, 8.0));\n"
         "  return mix(col, fogColor, fogAmount);\n"
@@ -713,7 +734,8 @@ RenderDevice::RenderDevice()
     : fvf(0), mInitialized(false), mAlphaBlendEnabled(false), mSrcBlend(BLEND_SRCALPHA), mDstBlend(BLEND_INVSRCALPHA),
       mShaderProgram(0), mDynamicVbo(0), mUniformMvp(-1), mUniformTexture(-1), mUniformTexMatrix(-1),
       mUniformColorMode(-1), mUniformModelView(-1), mUniformFogEnabled(-1), mUniformFogDensity(-1),
-      mUniformFogSkyColor(-1), mUniformSunDirView(-1) {
+      mUniformFogHeightScale(-1), mUniformFogSkyColor(-1), mUniformSunDirView(-1), mUniformCameraPos(-1),
+      mUniformWorldUpView(-1) {
     for (int i = 0; i < 8; i++) {
         colorop[i] = 0;
         colorarg1[i] = 0;
@@ -750,8 +772,11 @@ bool RenderDevice::EnsureInitialized() {
     mUniformModelView = STGL(GetUniformLocation)(mShaderProgram, "uModelView");
     mUniformFogEnabled = STGL(GetUniformLocation)(mShaderProgram, "uFogEnabled");
     mUniformFogDensity = STGL(GetUniformLocation)(mShaderProgram, "uFogDensity");
+    mUniformFogHeightScale = STGL(GetUniformLocation)(mShaderProgram, "uFogHeightScale");
     mUniformFogSkyColor = STGL(GetUniformLocation)(mShaderProgram, "uFogSkyColor");
     mUniformSunDirView = STGL(GetUniformLocation)(mShaderProgram, "uSunDirView");
+    mUniformCameraPos = STGL(GetUniformLocation)(mShaderProgram, "uCameraPos");
+    mUniformWorldUpView = STGL(GetUniformLocation)(mShaderProgram, "uWorldUpView");
 
     STGL(GenBuffers)(1, &mDynamicVbo);
     if (!mDynamicVbo) {
@@ -763,6 +788,8 @@ bool RenderDevice::EnsureInitialized() {
     STGL(Uniform1i)(mUniformTexture, 0);
     if (mUniformFogDensity >= 0)
         STGL(Uniform1f)(mUniformFogDensity, FOG_DENSITY);
+    if (mUniformFogHeightScale >= 0)
+        STGL(Uniform1f)(mUniformFogHeightScale, FOG_HEIGHT_SCALE);
     if (mUniformFogEnabled >= 0)
         STGL(Uniform1i)(mUniformFogEnabled, 0);
     STGL(UseProgram)(0);
@@ -950,9 +977,15 @@ HRESULT RenderDevice::DrawPrimitive(PrimitiveType PrimitiveType, UINT StartVerte
     const glm::mat4 mvp = worldSpaceVertices ? (mInv * mProj * mView * mWorld) : BuildScreenProjection();
     const glm::mat4 modelView = mView * mWorld;
 
-    const DWORD skyPacked = SCRGB(SKY_COLOUR_INDEX);
-    const glm::vec3 fogSkyColor(((skyPacked >> 0) & 0xff) / 255.0f, ((skyPacked >> 8) & 0xff) / 255.0f,
-                                ((skyPacked >> 16) & 0xff) / 255.0f);
+    const glm::vec3 fogSkyColor(FOG_SKY_COLOR_R, FOG_SKY_COLOR_G, FOG_SKY_COLOR_B);
+    const glm::mat4 invView = glm::inverse(mView);
+    const glm::vec3 cameraWorldPos = glm::vec3(invView * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+    glm::vec3 worldUpView = glm::vec3(mView * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
+    const float worldUpLen = glm::length(worldUpView);
+    if (worldUpLen > 0.0001f)
+        worldUpView /= worldUpLen;
+    else
+        worldUpView = glm::vec3(0.0f, 1.0f, 0.0f);
     const glm::vec3 sunWorldDir(0.0f, INV_SQRT2, INV_SQRT2);
     glm::vec3 sunViewDir = glm::vec3(mView * glm::vec4(sunWorldDir, 0.0f));
     const float sunViewLen = glm::length(sunViewDir);
@@ -969,8 +1002,11 @@ HRESULT RenderDevice::DrawPrimitive(PrimitiveType PrimitiveType, UINT StartVerte
     STGL(Uniform1i)(mUniformColorMode, colorMode);
     STGL(Uniform1i)(mUniformFogEnabled, worldSpaceVertices ? 1 : 0);
     STGL(Uniform1f)(mUniformFogDensity, FOG_DENSITY);
+    STGL(Uniform1f)(mUniformFogHeightScale, FOG_HEIGHT_SCALE);
     STGL(Uniform3f)(mUniformFogSkyColor, fogSkyColor.x, fogSkyColor.y, fogSkyColor.z);
     STGL(Uniform3f)(mUniformSunDirView, sunViewDir.x, sunViewDir.y, sunViewDir.z);
+    STGL(Uniform3f)(mUniformCameraPos, cameraWorldPos.x, cameraWorldPos.y, cameraWorldPos.z);
+    STGL(Uniform3f)(mUniformWorldUpView, worldUpView.x, worldUpView.y, worldUpView.z);
 
     STGL(EnableVertexAttribArray)(ATTRIB_POSITION);
     STGL(VertexAttribPointer)(ATTRIB_POSITION, layout.positionComponents, GL_FLOAT, GL_FALSE, (GLsizei)streamStride,

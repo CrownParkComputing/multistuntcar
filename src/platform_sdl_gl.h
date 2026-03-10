@@ -898,8 +898,11 @@ class RenderDevice {
     GLint mUniformModelView;
     GLint mUniformFogEnabled;
     GLint mUniformFogDensity;
+    GLint mUniformFogHeightScale;
     GLint mUniformFogSkyColor;
     GLint mUniformSunDirView;
+    GLint mUniformCameraPos;
+    GLint mUniformWorldUpView;
 };
 
 class TextHelper {

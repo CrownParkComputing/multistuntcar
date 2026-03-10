@@ -8,6 +8,7 @@
 /*    Include files */
 /*    ============= */
 #include "platform_sdl_gl.h"
+#include <cmath>
 
 #include "StuntCarRacer.h"
 #include "Backdrop.h"
@@ -31,6 +32,12 @@ extern FILE* out;
 #define MIN_SCENERY_TYPE 0
 #define MAX_SCENERY_TYPE 4
 
+#define SKY_DOME_AZIMUTH_SEGMENTS 48
+#define SKY_DOME_ELEVATION_SEGMENTS 10
+#define SKY_DOME_MAX_VERTICES (SKY_DOME_AZIMUTH_SEGMENTS * SKY_DOME_ELEVATION_SEGMENTS * 6)
+#define SKY_DOME_RADIUS 180000.0f
+#define SKY_DOME_LOWER_ELEVATION_DEGREES (-8.0f)
+
 /*    =========== */
 /*    Static data */
 /*    =========== */
@@ -38,11 +45,17 @@ static long current_scenery_type = MAX_SCENERY_TYPE;
 static VertexBuffer* pScenery3DVB = NULL;
 static long scenery3DVertexCount = 0;
 static long scenery3DBuiltType = -1;
+static VertexBuffer* pSkyDomeVB = NULL;
+static long skyDomeVertexCount = 0;
 
 /*    ===================== */
 /*    Function declarations */
 /*    ===================== */
 static void DrawHorizon(long viewpoint_y, long viewpoint_x_angle, long viewpoint_z_angle);
+
+static void DrawSkyDome3D(RenderDevice* pDevice);
+
+static HRESULT RebuildSkyDomeVertexBuffer(RenderDevice* pDevice);
 
 static void DrawScenery3D(RenderDevice* pDevice);
 
@@ -75,7 +88,128 @@ void DrawBackdrop(long viewpoint_y, long viewpoint_x_angle, long viewpoint_y_ang
     }
 }
 
+void DrawBackdropSkyDome3D(RenderDevice* pDevice) { DrawSkyDome3D(pDevice); }
+
 void DrawBackdropScenery3D(RenderDevice* pDevice) { DrawScenery3D(pDevice); }
+
+static void DrawSkyDome3D(RenderDevice* pDevice) {
+    if (pDevice == NULL)
+        return;
+
+    if ((pSkyDomeVB == NULL) || (skyDomeVertexCount <= 0)) {
+        if (FAILED(RebuildSkyDomeVertexBuffer(pDevice)))
+            return;
+    }
+
+    glm::mat4 matWorld;
+    mat4Identity(&matWorld);
+    pDevice->SetTransform(TS_WORLD, &matWorld);
+
+    pDevice->SetRenderState(RS_ZENABLE, FALSE);
+    pDevice->SetRenderState(RS_CULLMODE, CULL_NONE);
+    pDevice->SetTextureStageState(0, TSS_COLOROP, TOP_DISABLE);
+    pDevice->SetStreamSource(0, pSkyDomeVB, 0, sizeof(UTVERTEX));
+    pDevice->SetFVF(FVF_UTVERTEX);
+    pDevice->DrawPrimitive(PT_TRIANGLELIST, 0, skyDomeVertexCount / 3);
+}
+
+static HRESULT RebuildSkyDomeVertexBuffer(RenderDevice* pDevice) {
+    if (pSkyDomeVB) {
+        pSkyDomeVB->Release();
+        pSkyDomeVB = NULL;
+    }
+    skyDomeVertexCount = 0;
+
+    if (FAILED(pDevice->CreateVertexBuffer(SKY_DOME_MAX_VERTICES * sizeof(UTVERTEX), VB_USAGE_WRITEONLY,
+                                           FVF_UTVERTEX, POOL_DEFAULT, &pSkyDomeVB, NULL))) {
+        OutputDebugStringW(L"ERROR: Failed to create sky dome vertex buffer\n");
+        return E_FAIL;
+    }
+
+    UTVERTEX* pVertices = NULL;
+    if (FAILED(pSkyDomeVB->Lock(0, 0, (void**)&pVertices, 0))) {
+        OutputDebugStringW(L"ERROR: Failed to lock sky dome vertex buffer\n");
+        pSkyDomeVB->Release();
+        pSkyDomeVB = NULL;
+        return E_FAIL;
+    }
+
+    const long scale = (1L << (LOG_CUBE_SIZE - LOG_PRECISION));
+    const float world_center = static_cast<float>((NUM_TRACK_CUBES * scale) / 2);
+    const float center_y = static_cast<float>(TRACK_BOTTOM_Y);
+    const DWORD sky_colour = SCRGB(SKY_COLOUR);
+    const float lower_elevation = (SKY_DOME_LOWER_ELEVATION_DEGREES * static_cast<float>(PI)) / 180.0f;
+    const float upper_elevation = static_cast<float>(PI) * 0.5f;
+    const float full_circle = static_cast<float>(PI) * 2.0f;
+
+    for (long ring = 0; ring < SKY_DOME_ELEVATION_SEGMENTS; ++ring) {
+        const float t0 = static_cast<float>(ring) / static_cast<float>(SKY_DOME_ELEVATION_SEGMENTS);
+        const float t1 = static_cast<float>(ring + 1) / static_cast<float>(SKY_DOME_ELEVATION_SEGMENTS);
+        const float elevation0 = lower_elevation + (upper_elevation - lower_elevation) * t0;
+        const float elevation1 = lower_elevation + (upper_elevation - lower_elevation) * t1;
+        const float ring_radius0 = SKY_DOME_RADIUS * cosf(elevation0);
+        const float ring_radius1 = SKY_DOME_RADIUS * cosf(elevation1);
+        const float y0 = center_y + (SKY_DOME_RADIUS * sinf(elevation0));
+        const float y1 = center_y + (SKY_DOME_RADIUS * sinf(elevation1));
+
+        for (long seg = 0; seg < SKY_DOME_AZIMUTH_SEGMENTS; ++seg) {
+            const float a0 = full_circle * (static_cast<float>(seg) / static_cast<float>(SKY_DOME_AZIMUTH_SEGMENTS));
+            const float a1 =
+                full_circle * (static_cast<float>(seg + 1) / static_cast<float>(SKY_DOME_AZIMUTH_SEGMENTS));
+
+            const float x00 = world_center + (ring_radius0 * cosf(a0));
+            const float z00 = world_center + (ring_radius0 * sinf(a0));
+            const float x01 = world_center + (ring_radius0 * cosf(a1));
+            const float z01 = world_center + (ring_radius0 * sinf(a1));
+            const float x10 = world_center + (ring_radius1 * cosf(a0));
+            const float z10 = world_center + (ring_radius1 * sinf(a0));
+            const float x11 = world_center + (ring_radius1 * cosf(a1));
+            const float z11 = world_center + (ring_radius1 * sinf(a1));
+
+            if ((skyDomeVertexCount + 6) > SKY_DOME_MAX_VERTICES)
+                break;
+
+            pVertices[skyDomeVertexCount].pos = glm::vec3(x00, y0, z00);
+            pVertices[skyDomeVertexCount].color = sky_colour;
+            pVertices[skyDomeVertexCount].tu = 0.0f;
+            pVertices[skyDomeVertexCount].tv = 0.0f;
+            ++skyDomeVertexCount;
+
+            pVertices[skyDomeVertexCount].pos = glm::vec3(x10, y1, z10);
+            pVertices[skyDomeVertexCount].color = sky_colour;
+            pVertices[skyDomeVertexCount].tu = 0.0f;
+            pVertices[skyDomeVertexCount].tv = 0.0f;
+            ++skyDomeVertexCount;
+
+            pVertices[skyDomeVertexCount].pos = glm::vec3(x11, y1, z11);
+            pVertices[skyDomeVertexCount].color = sky_colour;
+            pVertices[skyDomeVertexCount].tu = 0.0f;
+            pVertices[skyDomeVertexCount].tv = 0.0f;
+            ++skyDomeVertexCount;
+
+            pVertices[skyDomeVertexCount].pos = glm::vec3(x00, y0, z00);
+            pVertices[skyDomeVertexCount].color = sky_colour;
+            pVertices[skyDomeVertexCount].tu = 0.0f;
+            pVertices[skyDomeVertexCount].tv = 0.0f;
+            ++skyDomeVertexCount;
+
+            pVertices[skyDomeVertexCount].pos = glm::vec3(x11, y1, z11);
+            pVertices[skyDomeVertexCount].color = sky_colour;
+            pVertices[skyDomeVertexCount].tu = 0.0f;
+            pVertices[skyDomeVertexCount].tv = 0.0f;
+            ++skyDomeVertexCount;
+
+            pVertices[skyDomeVertexCount].pos = glm::vec3(x01, y0, z01);
+            pVertices[skyDomeVertexCount].color = sky_colour;
+            pVertices[skyDomeVertexCount].tu = 0.0f;
+            pVertices[skyDomeVertexCount].tv = 0.0f;
+            ++skyDomeVertexCount;
+        }
+    }
+
+    pSkyDomeVB->Unlock();
+    return S_OK;
+}
 
 /*    ======================================================================================= */
 /*    Function:        NextSceneryType                                                            */

@@ -1502,6 +1502,7 @@ void CALLBACK OnFrameRender(RenderDevice* pDevice, double fTime, float fElapsedT
 
         // Render world geometry with split depth ranges for improved precision.
         SetPerspectiveDepthRange(pDevice, PERSPECTIVE_FAR_PASS_NEAR, PERSPECTIVE_FAR);
+        DrawBackdropSkyDome3D(pDevice);
         RenderWorldGeometry(pDevice);
 
         // Clear depth and redraw near range so close geometry wins cleanly.
