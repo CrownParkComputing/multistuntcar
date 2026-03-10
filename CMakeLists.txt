@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.20)
 
 project(StuntCarHD LANGUAGES CXX)
 
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -25,6 +27,9 @@ set(SCR_SOURCES
 )
 
 add_executable(stuntcarracer ${SCR_SOURCES})
+
+# StuntCarRacer is the main startup project in the IDE.
+set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT stuntcarracer)
 
 target_include_directories(stuntcarracer PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -184,6 +189,7 @@ if(NOT EMSCRIPTEN)
             "${CMAKE_BINARY_DIR}/data"
     COMMENT "Syncing runtime data assets to build directory"
   )
+  set_property(TARGET copy_runtime_data PROPERTY FOLDER "data")
 
   add_dependencies(stuntcarracer copy_runtime_data)
 
