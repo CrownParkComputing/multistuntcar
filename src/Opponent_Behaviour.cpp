@@ -10,6 +10,7 @@
 #include "platform_sdl_gl.h"
 
 #include <stdlib.h>
+#include <cmath>
 
 #include "StuntCarRacer.h"
 #include "Opponent_Behaviour.h"
@@ -65,9 +66,8 @@ extern unsigned char sections_car_can_be_put_on[]; // both array are used for op
 extern char Piece_Angle_And_Template[MAX_PIECES_PER_TRACK];
 extern long fourteen_frames_elapsed;
 
-// SEB: The opponents_speed_values, that is pre-computed, is not used anymore and Opponents_Speed_Value function is used now
 // Values for each piece of each track (Global because MoveDrawBridge() modifies the Draw Bridge values)
-// NOTE: These are for the Standard league.  Super league values are different
+// NOTE: These are the original Amiga tables for the Standard league; Super league values are generated at runtime.
 unsigned char opponents_speed_values[NUM_TRACKS][MAX_PIECES_PER_TRACK] = {
     {/* Little Ramp data */
      0x76, 0x6c, 0x62, 0x58, 0x7a, 0x7a, 0x70, 0x66, 0x5c, 0x52, 0x48, 0x48, 0x48, 0x7a, 0x7a,
@@ -238,6 +238,8 @@ static void RandomizeOpponentsSteering(void);
 static void GetOpponentsEngineAcceleration(void);
 static void AdjustOpponentsEngineAcceleration(void);
 static void UpdateOpponentsZSpeed(void);
+static void EnsureOpponentSpeedValuesForTrack(long track_id);
+static int GetOpponentSpeedValue(long track_id, long pos);
 
 static void CalculateDistancesBetweenPlayers(void);
 
@@ -363,6 +365,7 @@ void OpponentBehaviour(long* x, long* y, long* z, float* x_angle, float* y_angle
 
     // reset opponent
     if (bNewGame) {
+        EnsureOpponentSpeedValuesForTrack(TrackID);
         ResetOpponent();
 
         opponents_current_piece = PlayersStartPiece;
@@ -1230,9 +1233,25 @@ static long LimitOpponentWheels(long max_difference, long wheel1, long wheel2) {
     speed_diff = opp_y_speed[wheel1] - opp_y_speed[FRONT];
     if (speed_diff < 16) {
         static long y_speed_adjustments[] = {4, 4, -4};
+        static float s_y_speed_adjust_accum[NUM_OPP_WHEEL_POSITIONS] = {0.0f, 0.0f, 0.0f};
 
+        // Apply the original per-reference-tick adjustments, but scale by the
+        // current physics step so the net effect matches the Amiga regardless
+        // of Hz. Accumulate fractional parts to avoid bias.
         for (long i = 0; i < NUM_OPP_WHEEL_POSITIONS; i++) {
-            opp_y_speed[i] += y_speed_adjustments[i];
+            float adj_f = static_cast<float>(y_speed_adjustments[i]) * g_physicsStepScale;
+            s_y_speed_adjust_accum[i] += adj_f;
+
+            long adj_int = 0;
+            if (s_y_speed_adjust_accum[i] > 0.0f)
+                adj_int = static_cast<long>(std::floor(s_y_speed_adjust_accum[i] + 0.5f));
+            else if (s_y_speed_adjust_accum[i] < 0.0f)
+                adj_int = static_cast<long>(std::ceil(s_y_speed_adjust_accum[i] - 0.5f));
+
+            if (adj_int != 0) {
+                opp_y_speed[i] += adj_int;
+                s_y_speed_adjust_accum[i] -= static_cast<float>(adj_int);
+            }
         }
     }
 
@@ -1303,6 +1322,36 @@ srd114    move.l    #opponents.speed.values,a1
     }
     oldspeed = d0;
     return d0;
+}
+
+// Cache/initialise per-track opponent speed values so we can mirror the
+// Amiga table-based behaviour (and allow Track.cpp to tweak the table).
+static long cached_speed_track = -1;
+static bool cached_speed_super_league = false;
+
+static inline int GetOpponentSpeedValue(long track_id, long pos) {
+    // Interpret table entries as signed like the Amiga code does.
+    return static_cast<int>(static_cast<signed char>(opponents_speed_values[track_id][pos]));
+}
+
+static void EnsureOpponentSpeedValuesForTrack(long track_id) {
+    if (cached_speed_track == track_id && cached_speed_super_league == bSuperLeague)
+        return;
+
+    cached_speed_track = track_id;
+    cached_speed_super_league = bSuperLeague;
+
+    // Standard league already ships with the baked Amiga tables (and Draw Bridge
+    // mutates them at runtime), so nothing to rebuild here.
+    if (!bSuperLeague)
+        return;
+
+    // Super league values aren't pre-baked; generate them once per track using
+    // the original algorithm, then reuse the table every frame.
+    for (long piece = 0; piece < NumTrackPieces && piece < MAX_PIECES_PER_TRACK; ++piece) {
+        const long v = Opponent_Speed_Value(track_id, piece);
+        opponents_speed_values[track_id][piece] = static_cast<unsigned char>(v & 0xff);
+    }
 }
 
 /*    ======================================================================================= */
@@ -1387,7 +1436,7 @@ static void RandomizeOpponentsSteering(void) {
 
 ros1:
     d2 = opponents_current_piece;
-    if (/*opponents_speed_values[TrackID][d2]*/ Opponent_Speed_Value(TrackID, d2) < 0)
+    if (GetOpponentSpeedValue(TrackID, d2) < 0)
         goto ros2;
 
     if (opponent_behind_player)
@@ -1493,8 +1542,7 @@ static void AdjustOpponentsEngineAcceleration(void) {
     if (!opp_touching_road)
         return;
 
-    speed_value = /*opponents_speed_values[TrackID][opponents_current_piece]*/ Opponent_Speed_Value(
-        TrackID, opponents_current_piece);
+    speed_value = GetOpponentSpeedValue(TrackID, opponents_current_piece);
     speed = speed_value;
     if ((speed & 0x80) == 0) {
         if (speed > opponents_max_speed)
@@ -1861,12 +1909,22 @@ void CarToCarCollision(void) {
 
     cars_collided = 0;
 
-    d0 = opponents_z_speed - car_to_car_z_acceleration;
+    // Scale per-step impulses to match reference tick rate before applying.
+    long c2c_x = car_to_car_x_acceleration;
+    long c2c_y = car_to_car_y_acceleration;
+    long c2c_z = car_to_car_z_acceleration;
+    if (g_physicsStepScale > 0.0f) {
+        c2c_x = (long)((float)c2c_x * g_physicsStepScale);
+        c2c_y = (long)((float)c2c_y * g_physicsStepScale);
+        c2c_z = (long)((float)c2c_z * g_physicsStepScale);
+    }
+
+    d0 = opponents_z_speed - c2c_z;
     if (d0 < 0)
         d0 = 0;
     opponents_z_speed = d0;
 
-    d0 = car_to_car_y_acceleration >> WALL_CONTACT_DAMPING;
+    d0 = c2c_y >> WALL_CONTACT_DAMPING;
     opp_y_speed[REAR_LEFT] -= d0;
     opp_y_speed[REAR_RIGHT] -= d0;
     opp_y_speed[FRONT] -= d0;
@@ -1874,9 +1932,9 @@ void CarToCarCollision(void) {
     //VALUE1 = car_to_car_x_acceleration;
     //VALUE2 = car_to_car_y_acceleration;
     //VALUE3 = car_to_car_z_acceleration;
-    car_collision_x_acceleration += car_to_car_x_acceleration;
-    car_collision_y_acceleration += car_to_car_y_acceleration;
-    car_collision_z_acceleration += car_to_car_z_acceleration;
+    car_collision_x_acceleration += c2c_x;
+    car_collision_y_acceleration += c2c_y;
+    car_collision_z_acceleration += c2c_z;
 
     car_to_car_x_acceleration = 0;
     car_to_car_y_acceleration = 0;

@@ -58,15 +58,15 @@
  *
  * WALL_CONTACT_IMPULSE  - lateral (X-axis) impulse applied to player when
  *                         the two cars are in contact side-by-side.
- *                         Original hardcoded value = 0x800 (2048).
+ *                         Original Amiga code uses +/-8 here.
  *                         Raise for a harder shove; lower for a softer nudge.
  *
  * WALL_CONTACT_DAMPING  - right-shift applied to the vertical (Y) impulse
- *                         transferred between cars on contact (e.g. 7 => impulse >> 7).
+ *                         transferred between cars on contact (e.g. 4 => impulse >> 4).
  *                         Lower shift = more vertical bounce on contact;
  *                         higher shift = less.
  * ============================================================================ */
-#define WALL_CONTACT_IMPULSE      0x800  /* lateral shove on car-to-car contact */
-#define WALL_CONTACT_DAMPING      7      /* right-shift for vertical impulse     */
+#define WALL_CONTACT_IMPULSE      8     /* lateral shove on car-to-car contact */
+#define WALL_CONTACT_DAMPING      4     /* right-shift for vertical impulse     */
 
 #endif /* _PHYSICS_CONFIG */
