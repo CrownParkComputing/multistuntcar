@@ -1909,22 +1909,13 @@ void CarToCarCollision(void) {
 
     cars_collided = 0;
 
-    // Scale per-step impulses to match reference tick rate before applying.
-    long c2c_x = car_to_car_x_acceleration;
-    long c2c_y = car_to_car_y_acceleration;
-    long c2c_z = car_to_car_z_acceleration;
-    if (g_physicsStepScale > 0.0f) {
-        c2c_x = (long)((float)c2c_x * g_physicsStepScale);
-        c2c_y = (long)((float)c2c_y * g_physicsStepScale);
-        c2c_z = (long)((float)c2c_z * g_physicsStepScale);
-    }
-
-    d0 = opponents_z_speed - c2c_z;
+    // Match Amiga logic: apply the collision terms directly.
+    d0 = opponents_z_speed - car_to_car_z_acceleration;
     if (d0 < 0)
         d0 = 0;
     opponents_z_speed = d0;
 
-    d0 = c2c_y >> WALL_CONTACT_DAMPING;
+    d0 = car_to_car_y_acceleration >> WALL_CONTACT_DAMPING;
     opp_y_speed[REAR_LEFT] -= d0;
     opp_y_speed[REAR_RIGHT] -= d0;
     opp_y_speed[FRONT] -= d0;
@@ -1932,9 +1923,9 @@ void CarToCarCollision(void) {
     //VALUE1 = car_to_car_x_acceleration;
     //VALUE2 = car_to_car_y_acceleration;
     //VALUE3 = car_to_car_z_acceleration;
-    car_collision_x_acceleration += c2c_x;
-    car_collision_y_acceleration += c2c_y;
-    car_collision_z_acceleration += c2c_z;
+    car_collision_x_acceleration += car_to_car_x_acceleration;
+    car_collision_y_acceleration += car_to_car_y_acceleration;
+    car_collision_z_acceleration += car_to_car_z_acceleration;
 
     car_to_car_x_acceleration = 0;
     car_to_car_y_acceleration = 0;
