@@ -149,17 +149,13 @@ static bool IsSplitScreenMode(void) {
 }
 
 static float GetPlayerCarRenderYOffset(void) {
-    float yOffset = VCAR_HEIGHT / 3.0f;
     if (IsSplitScreenMode())
-        yOffset += VCAR_HEIGHT / 12.0f;
-    return yOffset;
+        return VCAR_HEIGHT / 4.0f;
+    return VCAR_HEIGHT / 3.0f;
 }
 
 static float GetOpponentCarRenderYOffset(void) {
-    float yOffset = bMultiplayerMode ? (VCAR_HEIGHT / 3.0f) : (VCAR_HEIGHT / 4.0f);
-    if (bMultiplayerMode)
-        yOffset += VCAR_HEIGHT / 12.0f;
-    return yOffset;
+    return VCAR_HEIGHT / 4.0f;
 }
 
 #if defined(DEBUG) || defined(_DEBUG)
