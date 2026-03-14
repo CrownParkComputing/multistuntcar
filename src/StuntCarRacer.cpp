@@ -2599,7 +2599,9 @@ static bool RunFrame(double frameTime, bool allowQuit) {
                     if ((GameMode == GAME_IN_PROGRESS) && (!bPlayerPaused))
                         CarBehaviour(lastInput, &player1_x, &player1_y, &player1_z, &player1_x_angle,
                                      &player1_y_angle, &player1_z_angle, (float)g_physicsStepSeconds);
-                    if (bMultiplayerMode) {
+                    const bool useMultiplayerCarBehaviourForOpponent =
+                        bMultiplayerMode && (GameMode == GAME_IN_PROGRESS);
+                    if (useMultiplayerCarBehaviourForOpponent) {
                         if (!bOpponentPaused || bNewGame) {
                             long opponent_x_angle_units = RadiansToPlayerAngle(opponent_x_angle);
                             long opponent_y_angle_units = RadiansToPlayerAngle(opponent_y_angle);
