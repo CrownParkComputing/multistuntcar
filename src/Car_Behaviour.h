@@ -13,7 +13,7 @@
 #define WHEEL_SPEED_HIGH_OFFSET 0x3000  // Added to high speed wheel calculation
 #define WHEEL_SPEED_MAX 0xffff          // Maximum wheel rotation speed
 #define WHEEL_SPEED_MAX_CLAMPED 0xff00  // Clamped maximum wheel speed
-#define WHEEL_ANGLE_MASK 0xfffff        // Mask for wheel angle wrapping
+#define WHEEL_ANGLE_MASK 0x5ffff        // 6-frame cycle (6 * 65536) for cockpit wheel animation
 
 // new new controls for Car Behaviour, Player 1
 // must not clash with other KEY definitions

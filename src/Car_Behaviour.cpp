@@ -45,6 +45,7 @@
 /*    ============= */
 #include "platform_sdl_gl.h"
 
+#include <cmath>
 #include <stdlib.h>
 #include <vector>
 
@@ -1816,11 +1817,21 @@ set.wheel.rotation.speed :-
         }
     return;
 */
-static void SetOneWheelRotationSpeed(long wheel_touching_road, long wheel_z_speed, long* wheel_rotation_speed) {
-    if (wheel_touching_road == 0) {
-        // Not touching road, so reduce wheel speed by one quarter
-        long reduction = (*wheel_rotation_speed) / 4;
-        *wheel_rotation_speed -= reduction;
+static void SetOneWheelRotationSpeed(long car_touching_road, long wheel_z_speed, long* wheel_rotation_speed) {
+    if (car_touching_road == 0) {
+        // Original code applies -25% per reference tick (~0.14s).
+        // Apply an equivalent per-step decay so wheel spin carries through airtime at higher physics Hz.
+        const float step_scale = (g_physicsStepScale > 0.0f) ? g_physicsStepScale : 1.0f;
+        if ((step_scale > 0.999f) && (step_scale < 1.001f)) {
+            long reduction = (*wheel_rotation_speed) / 4;
+            *wheel_rotation_speed -= reduction;
+        } else {
+            const float retain = std::pow(0.75f, step_scale);
+            long retained_speed = static_cast<long>(static_cast<float>(*wheel_rotation_speed) * retain);
+            if (retained_speed < 0)
+                retained_speed = 0;
+            *wheel_rotation_speed = retained_speed;
+        }
         return;
     }
     if (abs(wheel_z_speed) < WHEEL_SPEED_LOW_THRESHOLD) {
@@ -1835,8 +1846,9 @@ static void SetOneWheelRotationSpeed(long wheel_touching_road, long wheel_z_spee
 }
 
 static void SetWheelRotationSpeed() {
-    SetOneWheelRotationSpeed(front_left_amount_below_road, player_z_speed, &front_left_wheel_speed);
-    SetOneWheelRotationSpeed(front_right_amount_below_road, player_z_speed, &front_right_wheel_speed);
+    // Original set.wheel.rotation.speed gates on touching.road (car state), not per-wheel contact.
+    SetOneWheelRotationSpeed(touching_road, player_z_speed, &front_left_wheel_speed);
+    SetOneWheelRotationSpeed(touching_road, player_z_speed, &front_right_wheel_speed);
 }
 
 /*    ======================================================================================= */
@@ -3802,23 +3814,87 @@ void PrimeEngineAudioForGameplayStart(void) {
 // All sounds playing but mute the ones that aren't required - WORSE
 // Start the new sound playing at the same percentage through as the previous sound - SLIGHTLY BETTER
 
-static long DistributeStepValue(long full_step_value, int step_divisor, long* step_remainder_in_out) {
-    if (step_divisor <= 1) {
+static float ResolveSubstepScale(int step_divisor) {
+    const bool physicsScaleLooksInitialised =
+        (g_physicsStepScale > 0.0f) &&
+        ((step_divisor <= 1) || (g_physicsStepScale < 0.999f) || (g_physicsStepScale > 1.001f));
+    if (physicsScaleLooksInitialised)
+        return g_physicsStepScale;
+    if (step_divisor <= 1)
+        return 1.0f;
+    return 1.0f / static_cast<float>(step_divisor);
+}
+
+static long DistributeStepValueWithScale(long full_step_value, float step_scale, long* step_remainder_in_out) {
+    if (step_scale <= 0.0f) {
         *step_remainder_in_out = 0;
-        return full_step_value;
+        return 0;
     }
 
-    *step_remainder_in_out += full_step_value;
-    long substep_value = *step_remainder_in_out / step_divisor;
-    *step_remainder_in_out -= (substep_value * step_divisor);
+    const long scale_fp = static_cast<long>(step_scale * 65536.0f + 0.5f);
+    long long total =
+        static_cast<long long>(*step_remainder_in_out) + (static_cast<long long>(full_step_value) * scale_fp);
+    long substep_value = static_cast<long>(total / 65536ll);
+    *step_remainder_in_out = static_cast<long>(total - (static_cast<long long>(substep_value) * 65536ll));
     return substep_value;
 }
 
+static long DistributeStepValue(long full_step_value, int step_divisor, long* step_remainder_in_out) {
+    return DistributeStepValueWithScale(full_step_value, ResolveSubstepScale(step_divisor), step_remainder_in_out);
+}
+
+static void AdvanceWheelAngleSubstep(long wheel_speed, int step_divisor, long* wheel_step_remainder_in_out,
+                                     long* wheel_angle_in_out) {
+    // Amiga update.wheel.rotation uses the low byte of wheel.rotation.speed to
+    // drive frame-count carry. Encode that into our angle accumulator by stepping
+    // in 8.8-style units so (angle >> 16) tracks frame advances.
+    long speed_byte = (wheel_speed & 0xff);
+    // In the PC port physics ranges, wheel_speed is often quantized in 0x100 units,
+    // which would make the low byte always zero and freeze animation. Fall back to
+    // high byte in that case to preserve visible wheel rotation.
+    if ((speed_byte == 0) && (wheel_speed != 0))
+        speed_byte = ((wheel_speed >> 8) & 0xff);
+    long speed_step = speed_byte;
+    // Wheel rotation in the original runs on the render/audio frame path (~50 Hz), not the
+    // 0.14s logic reference path. Convert from logic-scale to frame-scale for substep updates.
+    // User tuning: slow wheel animation by 5x from current behavior.
+    const float wheel_step_scale = ResolveSubstepScale(step_divisor) * (7.0f / 1.0f);
+    long wheel_step = DistributeStepValueWithScale(speed_step, wheel_step_scale, wheel_step_remainder_in_out);
+
+    // Emulate original update.wheel.rotation:
+    //   add.b wheel.rotation.speed, wheel.frame.count
+    //   on carry -> set.wheel.frame.number (+1/-1 modulo 6 by players.z.speed sign)
+    unsigned long packed = static_cast<unsigned long>(*wheel_angle_in_out);
+    long frame_count = static_cast<long>((packed >> 8) & 0xffu);
+    long frame_number = static_cast<long>((packed >> 16) & 0xffu) % 6;
+
+    if (wheel_step < 0)
+        wheel_step = 0;
+    frame_count += wheel_step;
+    long carries = (frame_count >> 8);
+    frame_count &= 0xff;
+
+    while (carries-- > 0) {
+        // Visual frame order in the PC atlas is inverted relative to the original sprite path,
+        // so forward travel should step frame numbers backwards.
+        if (player_z_speed < 0) {
+            frame_number += 1;
+            if (frame_number > 5)
+                frame_number = 0;
+        } else {
+            frame_number -= 1;
+            if (frame_number < 0)
+                frame_number = 5;
+        }
+    }
+
+    *wheel_angle_in_out = (frame_number << 16) | (frame_count << 8);
+}
+
 void StepEngineAudioStateSubstep(int substeps_per_logic) {
-    long left_step = DistributeStepValue(front_left_wheel_speed, substeps_per_logic, &wheel_left_step_remainder);
-    long right_step = DistributeStepValue(front_right_wheel_speed, substeps_per_logic, &wheel_right_step_remainder);
-    leftwheel_angle = (leftwheel_angle + left_step) & WHEEL_ANGLE_MASK;
-    rightwheel_angle = (leftwheel_angle + right_step) & WHEEL_ANGLE_MASK;
+    AdvanceWheelAngleSubstep(front_left_wheel_speed, substeps_per_logic, &wheel_left_step_remainder, &leftwheel_angle);
+    AdvanceWheelAngleSubstep(front_right_wheel_speed, substeps_per_logic, &wheel_right_step_remainder,
+                             &rightwheel_angle);
 
     long rev_step = DistributeStepValue(engineRevsChange, substeps_per_logic, &engine_revs_step_remainder);
     long r = engineRevs + rev_step;
@@ -3850,16 +3926,11 @@ fwe3    move.w    sprite.DMA.value,dmacon+custom
 */
     // wheel update
     if (!engineSoundPlaying) {
-        wheel_left_step_remainder = 0;
-        wheel_right_step_remainder = 0;
-        engine_revs_step_remainder = 0;
         pendingEngineSoundIndex = -1;
         pendingEngineSoundIndexCount = 0;
     }
-    long left_step = DistributeStepValue(front_left_wheel_speed, step_divisor, &wheel_left_step_remainder);
-    long right_step = DistributeStepValue(front_right_wheel_speed, step_divisor, &wheel_right_step_remainder);
-    leftwheel_angle = (leftwheel_angle + left_step) & WHEEL_ANGLE_MASK;
-    rightwheel_angle = (leftwheel_angle + right_step) & WHEEL_ANGLE_MASK;
+    AdvanceWheelAngleSubstep(front_left_wheel_speed, step_divisor, &wheel_left_step_remainder, &leftwheel_angle);
+    AdvanceWheelAngleSubstep(front_right_wheel_speed, step_divisor, &wheel_right_step_remainder, &rightwheel_angle);
 
     int period, index;
     DWORD freq;

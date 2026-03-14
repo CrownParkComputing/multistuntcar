@@ -419,7 +419,9 @@ void DrawCockpit(RenderDevice* pDevice) {
           Y2 = (480.0f - COCKPIT_WHEEL_BOTTOM_GAP * 2.4f);
     Y1 -= old_leftwheel;
     Y2 -= old_leftwheel;
-    AddQuad(pVertices, X1, Y1, X2, Y2, 0.8f, eWheel0 + (leftwheel_angle >> 16) % 6, 0, 1);
+    const int leftWheelPhase = static_cast<int>((static_cast<unsigned int>(leftwheel_angle) >> 16) % 6u);
+    const int leftWheelFrame = 5 - leftWheelPhase;
+    AddQuad(pVertices, X1, Y1, X2, Y2, 0.8f, eWheel0 + leftWheelFrame, 0, 1);
     old_rightwheel = (front_right_amount_below_road >> 6);
     X1 = (Wide * 2.f + 640.f - COCKPIT_WHEEL_LEFT_OFFSET * 2.f - COCKPIT_WHEEL_WIDTH * 2) + offsetX,
     X2 = (Wide * 2.f + 640.f - COCKPIT_WHEEL_LEFT_OFFSET * 2.f) + offsetX;
@@ -427,7 +429,9 @@ void DrawCockpit(RenderDevice* pDevice) {
     Y2 = (480.0f - COCKPIT_WHEEL_BOTTOM_GAP * 2.4f);
     Y1 -= old_rightwheel;
     Y2 -= old_rightwheel;
-    AddQuad(pVertices, X1, Y1, X2, Y2, 0.8f, eWheel0 + (rightwheel_angle >> 16) % 6, 1, 1);
+    const int rightWheelPhase = static_cast<int>((static_cast<unsigned int>(rightwheel_angle) >> 16) % 6u);
+    const int rightWheelFrame = 5 - rightWheelPhase;
+    AddQuad(pVertices, X1, Y1, X2, Y2, 0.8f, eWheel0 + rightWheelFrame, 1, 1);
 
     int engineFrame = eEngine;
     if (boost_activated) {
