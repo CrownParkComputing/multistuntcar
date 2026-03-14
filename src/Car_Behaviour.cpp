@@ -3709,6 +3709,13 @@ bool GetCarRoadCollisionStateForInstance(long instanceIndex, CarRoadCollisionSta
     return true;
 }
 
+bool IsCarWreckedForInstance(long instanceIndex) {
+    const long previousInstance = PushCarBehaviourInstance(instanceIndex);
+    const bool wrecked = (WRECKED != FALSE);
+    PopCarBehaviourInstance(previousInstance);
+    return wrecked;
+}
+
 void SetCarRoadStateForInstance(long instanceIndex, long piece, long distanceIntoSection) {
     if (piece < 0 || piece >= NumTrackPieces)
         return;
@@ -4198,6 +4205,11 @@ void UpdateDamage(void) {
         long d = (front_left_damage + front_right_damage) / 2; // average front damage
         new_damage = (d + rear_damage) / 2;                    // total average damage
                                                                // value new_damage must be used to draw damage line
+        if ((new_damage >= 0xf0) && NOT_WRECKED) {
+            // Match original damage-line wreck trigger threshold.
+            new_damage = 0xef;
+            wreck_wheel_height_reduction = 0x200;
+        }
     }
 
     if (smashed_countdown) {

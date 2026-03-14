@@ -1567,6 +1567,20 @@ static void UpdateDamageForActiveCars(void) {
     PopCarBehaviourInstance(previousInstance);
 }
 
+static void UpdateMultiplayerRaceFinishFromWrecks(void) {
+    if (!bMultiplayerMode || GameMode != GAME_IN_PROGRESS || raceFinished)
+        return;
+
+    const bool player1Wrecked = IsCarWreckedForInstance(0);
+    const bool player2Wrecked = IsCarWreckedForInstance(1);
+    if (player1Wrecked == player2Wrecked)
+        return;
+
+    raceFinished = true;
+    // raceWon is "player 1 won".
+    raceWon = player2Wrecked;
+}
+
 static void DrawGameplayCockpitHud(TextHelper& txtHelper, long lapValue, long opponentsDistance) {
     WCHAR lapText[3] = L"  ";
     if (lapValue > 0)
@@ -2750,8 +2764,10 @@ static bool RunFrame(double frameTime, bool allowQuit) {
         AdvanceBoostReserve(g_logicInput);  // drain boost once per logic tick (was 50x/sec in BoostPower)
         ResetControlSamplingWindow();
         OnFrameMove(&pDevice, frameTime, static_cast<float>(g_logicTickInterval), NULL);
-        if ((GameMode == GAME_IN_PROGRESS) && bFrameMoved)
+        if ((GameMode == GAME_IN_PROGRESS) && bFrameMoved) {
             UpdateDamageForActiveCars();
+            UpdateMultiplayerRaceFinishFromWrecks();
+        }
         BeginLogicTickDamagePeriodForActiveCars(); // allow damage to be applied again (once per wheel per logic tick)
         ++g_baseLogicTicksInWindow;
         ++g_baseLogicTickTotal;
