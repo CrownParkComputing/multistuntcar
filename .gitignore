@@ -12,6 +12,7 @@ stuntcarracer
 Release/
 Debug/
 StuntCarRacer_2008.VC.db
+node_modules
 
 StuntCarRacer_2008.VC.VC.opendb
 *.user

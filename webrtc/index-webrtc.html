@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>2P WebRTC Canvas Game</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 1000px;
+      margin: 24px auto;
+      padding: 0 16px;
+    }
+
+    .row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    input, button {
+      font-size: 16px;
+      padding: 8px 10px;
+    }
+
+    #joinLink {
+      width: 100%;
+      max-width: 700px;
+    }
+
+    #status {
+      padding: 10px 12px;
+      background: #f3f3f3;
+      border-radius: 8px;
+      margin: 12px 0;
+    }
+
+    #hostArea, #guestArea {
+      margin-top: 20px;
+    }
+
+    canvas, video {
+      width: 100%;
+      max-width: 800px;
+      border: 1px solid #ccc;
+      display: block;
+      background: #111;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .small {
+      color: #666;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <h1>2 Player WebRTC Game</h1>
+
+  <div class="row" id="lobbyRow">
+    <button id="hostBtn">Host Game</button>
+    <input id="roomInput" placeholder="Room ID" />
+    <button id="joinBtn">Join Room</button>
+  </div>
+
+  <div id="hostControls" class="hidden">
+    <div class="row">
+      <input id="joinLink" readonly />
+      <button id="copyBtn">Copy Link</button>
+    </div>
+  </div>
+
+  <div id="status">Idle</div>
+
+  <div id="hostArea" class="hidden">
+    <h2>Host View</h2>
+    <p class="small">This side runs the real game and streams the canvas to the guest.</p>
+    <canvas id="gameCanvas" width="800" height="450"></canvas>
+  </div>
+
+  <div id="guestArea" class="hidden">
+    <h2>Guest View</h2>
+    <p class="small">This side watches the stream and sends keyboard + gamepad input to the host.</p>
+    <video id="remoteVideo" autoplay playsinline></video>
+  </div>
+
+  <script>
+    const SIGNAL_BASE = "https://tiny-signal.retrofoundry.workers.dev";
+
+    const hostBtn = document.getElementById("hostBtn");
+    const joinBtn = document.getElementById("joinBtn");
+    const roomInput = document.getElementById("roomInput");
+    const copyBtn = document.getElementById("copyBtn");
+    const joinLinkInput = document.getElementById("joinLink");
+    const hostControls = document.getElementById("hostControls");
+    const statusEl = document.getElementById("status");
+    const hostArea = document.getElementById("hostArea");
+    const guestArea = document.getElementById("guestArea");
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const remoteVideo = document.getElementById("remoteVideo");
+
+    const state = {
+      role: null,               // "host" or "guest"
+      room: null,
+      peerId: crypto.randomUUID(),
+      targetPeerId: null,
+      ws: null,
+      pc: null,
+      dc: null,
+      gameStarted: false,
+      gamepadLoopHandle: null,
+      guestBootedFromUrl: false
+    };
+
+    const game = {
+      x: 120,
+      y: 225,
+      size: 36,
+      speed: 4,
+      keys: new Set(),
+      gamepads: new Map(),
+      tickHandle: null
+    };
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+      console.log(text);
+    }
+
+    function makeRoomId() {
+      return crypto.randomUUID().slice(0, 8);
+    }
+
+    function buildGuestJoinLink(roomId) {
+      const url = new URL(window.location.href);
+      url.search = "";
+      url.hash = "";
+      url.searchParams.set("join", "1");
+      url.searchParams.set("room", roomId);
+      return url.toString();
+    }
+
+    function setHostUrl(roomId) {
+      const url = new URL(window.location.href);
+      url.search = "";
+      url.hash = "";
+      url.searchParams.set("host", "1");
+      url.searchParams.set("room", roomId);
+      history.replaceState({}, "", url.toString());
+    }
+
+    function showHostUI() {
+      hostArea.classList.remove("hidden");
+      hostControls.classList.remove("hidden");
+      guestArea.classList.add("hidden");
+    }
+
+    function showGuestUI() {
+      guestArea.classList.remove("hidden");
+      hostArea.classList.add("hidden");
+      hostControls.classList.add("hidden");
+    }
+
+    function hideAllGameViews() {
+      hostArea.classList.add("hidden");
+      guestArea.classList.add("hidden");
+      hostControls.classList.add("hidden");
+    }
+
+    async function createSession(room, peer) {
+      const res = await fetch(`${SIGNAL_BASE}/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room, peer })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to create session");
+      }
+      return data;
+    }
+
+    function setupPeerConnection() {
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:stun1.l.google.com:19302" }
+        ]
+      });
+
+      pc.onicecandidate = (event) => {
+        if (!event.candidate || !state.targetPeerId || !state.ws || state.ws.readyState !== WebSocket.OPEN) {
+          return;
+        }
+
+        state.ws.send(JSON.stringify({
+          type: "ice",
+          to: state.targetPeerId,
+          payload: event.candidate
+        }));
+      };
+
+      pc.ontrack = (event) => {
+        if (state.role === "guest") {
+          remoteVideo.srcObject = event.streams[0];
+        }
+      };
+
+      pc.ondatachannel = (event) => {
+        state.dc = event.channel;
+
+        state.dc.onopen = () => {
+          setStatus("Data channel open");
+        };
+
+        state.dc.onmessage = (e) => {
+          if (state.role !== "host") return;
+
+          try {
+            const msg = JSON.parse(e.data);
+            handleGuestInput(msg);
+          } catch (err) {
+            console.error("Bad data channel message", err);
+          }
+        };
+      };
+
+      state.pc = pc;
+      return pc;
+    }
+
+    async function connectSignaling(room, peer) {
+      const session = await createSession(room, peer);
+      const ws = new WebSocket(session.wsUrl);
+      state.ws = ws;
+
+      await new Promise((resolve, reject) => {
+        ws.onopen = resolve;
+        ws.onerror = () => reject(new Error("WebSocket failed"));
+      });
+
+      ws.onclose = () => {
+        setStatus("Disconnected");
+      };
+
+      ws.onmessage = async (event) => {
+        const msg = JSON.parse(event.data);
+
+        if (msg.type === "welcome") {
+          setStatus(`Connected as ${msg.role}`);
+        }
+
+        if (msg.type === "peers") {
+          const others = msg.peers.filter(id => id !== state.peerId);
+          setStatus(`Room ${msg.count}/${msg.max}`);
+
+          if (state.role === "host" && others.length && !state.targetPeerId) {
+            state.targetPeerId = others[0];
+            await startHostOffer();
+          }
+
+          if (state.role === "host" && !others.length) {
+            state.targetPeerId = null;
+          }
+        }
+
+        if (msg.type === "offer") {
+          state.targetPeerId = msg.from;
+          await state.pc.setRemoteDescription(msg.payload);
+
+          const answer = await state.pc.createAnswer();
+          await state.pc.setLocalDescription(answer);
+
+          ws.send(JSON.stringify({
+            type: "answer",
+            to: state.targetPeerId,
+            payload: answer
+          }));
+        }
+
+        if (msg.type === "answer") {
+          await state.pc.setRemoteDescription(msg.payload);
+        }
+
+        if (msg.type === "ice") {
+          try {
+            await state.pc.addIceCandidate(msg.payload);
+          } catch (err) {
+            console.error("Failed to add ICE candidate", err);
+          }
+        }
+
+        if (msg.type === "error") {
+          setStatus(`Error: ${msg.error}`);
+        }
+      };
+    }
+
+    async function startHostOffer() {
+      if (!state.dc) {
+        state.dc = state.pc.createDataChannel("inputs");
+
+        state.dc.onopen = () => {
+          setStatus("Guest connected");
+        };
+
+        state.dc.onmessage = (e) => {
+          try {
+            const msg = JSON.parse(e.data);
+            handleGuestInput(msg);
+          } catch (err) {
+            console.error("Bad data channel message", err);
+          }
+        };
+      }
+
+      const offer = await state.pc.createOffer();
+      await state.pc.setLocalDescription(offer);
+
+      state.ws.send(JSON.stringify({
+        type: "offer",
+        to: state.targetPeerId,
+        payload: offer
+      }));
+    }
+
+    function startHostGame() {
+      if (state.gameStarted) return;
+      state.gameStarted = true;
+
+      const stream = canvas.captureStream(30);
+      for (const track of stream.getTracks()) {
+        state.pc.addTrack(track, stream);
+      }
+
+      const loop = () => {
+        updateGame();
+        drawGame();
+        game.tickHandle = requestAnimationFrame(loop);
+      };
+
+      loop();
+    }
+
+    function getPrimaryGamepadState() {
+      const pads = [...game.gamepads.values()];
+      return pads.length ? pads[0] : null;
+    }
+
+    function updateGame() {
+      let dx = 0;
+      let dy = 0;
+
+      // Keyboard
+      if (game.keys.has("ArrowLeft") || game.keys.has("a") || game.keys.has("A")) dx -= 1;
+      if (game.keys.has("ArrowRight") || game.keys.has("d") || game.keys.has("D")) dx += 1;
+      if (game.keys.has("ArrowUp") || game.keys.has("w") || game.keys.has("W")) dy -= 1;
+      if (game.keys.has("ArrowDown") || game.keys.has("s") || game.keys.has("S")) dy += 1;
+
+      // Gamepad
+      const gp = getPrimaryGamepadState();
+      if (gp) {
+        const axX = Math.abs(gp.axes?.[0] || 0) > 0.15 ? gp.axes[0] : 0;
+        const axY = Math.abs(gp.axes?.[1] || 0) > 0.15 ? gp.axes[1] : 0;
+
+        dx += axX;
+        dy += axY;
+
+        if (gp.buttons?.[14]?.pressed) dx -= 1;
+        if (gp.buttons?.[15]?.pressed) dx += 1;
+        if (gp.buttons?.[12]?.pressed) dy -= 1;
+        if (gp.buttons?.[13]?.pressed) dy += 1;
+      }
+
+      game.x += dx * game.speed;
+      game.y += dy * game.speed;
+
+      if (game.x < 0) game.x = 0;
+      if (game.y < 0) game.y = 0;
+      if (game.x > canvas.width - game.size) game.x = canvas.width - game.size;
+      if (game.y > canvas.height - game.size) game.y = canvas.height - game.size;
+    }
+
+    function drawGame() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "#161616";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "#2a2a2a";
+      for (let x = 0; x < canvas.width; x += 40) {
+        ctx.fillRect(x, 0, 1, canvas.height);
+      }
+      for (let y = 0; y < canvas.height; y += 40) {
+        ctx.fillRect(0, y, canvas.width, 1);
+      }
+
+      ctx.fillStyle = "#4ade80";
+      ctx.fillRect(game.x, game.y, game.size, game.size);
+
+      ctx.fillStyle = "#fff";
+      ctx.font = "18px sans-serif";
+      ctx.fillText("Host game running", 20, 30);
+      ctx.fillText("Guest controls with keyboard + gamepad", 20, 58);
+
+      const gp = getPrimaryGamepadState();
+      if (gp) {
+        ctx.fillText(`Gamepad: ${gp.id || "connected"}`, 20, 86);
+      }
+    }
+
+    function handleGuestInput(msg) {
+      if (msg.type === "key") {
+        const key = String(msg.key || "");
+        if (!key) return;
+
+        if (msg.down) {
+          game.keys.add(key);
+        } else {
+          game.keys.delete(key);
+        }
+        return;
+      }
+
+      if (msg.type === "gamepad") {
+        if (typeof msg.index !== "number") return;
+        game.gamepads.set(msg.index, {
+          id: msg.id || "",
+          axes: Array.isArray(msg.axes) ? msg.axes : [],
+          buttons: Array.isArray(msg.buttons) ? msg.buttons : []
+        });
+        return;
+      }
+
+      if (msg.type === "gamepad-disconnect") {
+        if (typeof msg.index !== "number") return;
+        game.gamepads.delete(msg.index);
+      }
+    }
+
+    function sendInput(payload) {
+      if (state.role !== "guest") return;
+      if (!state.dc || state.dc.readyState !== "open") return;
+      state.dc.send(JSON.stringify(payload));
+    }
+
+    function setupGuestKeyboardInput() {
+      window.addEventListener("keydown", (e) => {
+        if (state.role !== "guest") return;
+
+        sendInput({
+          type: "key",
+          key: e.key,
+          code: e.code,
+          down: true,
+          altKey: e.altKey,
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
+          shiftKey: e.shiftKey
+        });
+
+        if (
+          ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "Spacebar"].includes(e.key) ||
+          e.code === "Space"
+        ) {
+          e.preventDefault();
+        }
+      }, { passive: false });
+
+      window.addEventListener("keyup", (e) => {
+        if (state.role !== "guest") return;
+
+        sendInput({
+          type: "key",
+          key: e.key,
+          code: e.code,
+          down: false,
+          altKey: e.altKey,
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
+          shiftKey: e.shiftKey
+        });
+
+        if (
+          ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "Spacebar"].includes(e.key) ||
+          e.code === "Space"
+        ) {
+          e.preventDefault();
+        }
+      }, { passive: false });
+    }
+
+    function snapshotGamepad(gp) {
+      return {
+        type: "gamepad",
+        index: gp.index,
+        id: gp.id,
+        axes: gp.axes.map(v => Math.round(v * 1000) / 1000),
+        buttons: gp.buttons.map(btn => ({
+          pressed: !!btn.pressed,
+          touched: !!btn.touched,
+          value: Math.round(btn.value * 1000) / 1000
+        }))
+      };
+    }
+
+    function gamepadPayloadEqual(a, b) {
+      return JSON.stringify(a) === JSON.stringify(b);
+    }
+
+    function setupGuestGamepadInput() {
+      const lastSent = new Map();
+
+      function poll() {
+        if (state.role === "guest") {
+          const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+
+          for (const gp of pads) {
+            if (!gp) continue;
+
+            const payload = snapshotGamepad(gp);
+            const prev = lastSent.get(gp.index);
+
+            if (!prev || !gamepadPayloadEqual(prev, payload)) {
+              sendInput(payload);
+              lastSent.set(gp.index, payload);
+            }
+          }
+
+          for (const index of [...lastSent.keys()]) {
+            const stillThere = pads[index];
+            if (!stillThere) {
+              sendInput({
+                type: "gamepad-disconnect",
+                index
+              });
+              lastSent.delete(index);
+            }
+          }
+        }
+
+        state.gamepadLoopHandle = requestAnimationFrame(poll);
+      }
+
+      window.addEventListener("gamepadconnected", (e) => {
+        if (state.role !== "guest") return;
+        const payload = snapshotGamepad(e.gamepad);
+        lastSent.set(e.gamepad.index, payload);
+        sendInput(payload);
+        setStatus(`Gamepad connected: ${e.gamepad.id}`);
+      });
+
+      window.addEventListener("gamepaddisconnected", (e) => {
+        if (state.role !== "guest") return;
+        lastSent.delete(e.gamepad.index);
+        sendInput({
+          type: "gamepad-disconnect",
+          index: e.gamepad.index
+        });
+        setStatus(`Gamepad disconnected: ${e.gamepad.id}`);
+      });
+
+      poll();
+    }
+
+    async function hostGame() {
+      state.role = "host";
+      state.room = makeRoomId();
+      state.targetPeerId = null;
+      roomInput.value = state.room;
+
+      const joinUrl = buildGuestJoinLink(state.room);
+      joinLinkInput.value = joinUrl;
+
+      setHostUrl(state.room);
+      showHostUI();
+      setupPeerConnection();
+      await connectSignaling(state.room, state.peerId);
+      startHostGame();
+
+      console.log("Guest join URL:", joinUrl);
+      setStatus("Hosting. Share the link. The guest can join any time.");
+    }
+
+    async function joinGame(roomId) {
+      state.role = "guest";
+      state.room = roomId;
+      state.targetPeerId = null;
+      roomInput.value = roomId;
+
+      showGuestUI();
+      setupPeerConnection();
+      await connectSignaling(state.room, state.peerId);
+
+      setStatus("Joined. Waiting for host stream...");
+    }
+
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(joinLinkInput.value);
+        setStatus("Join link copied");
+      } catch (err) {
+        console.error(err);
+        setStatus("Copy failed");
+      }
+    });
+
+    hostBtn.addEventListener("click", () => {
+      hostGame().catch((err) => {
+        console.error(err);
+        setStatus(`Host failed: ${err.message}`);
+      });
+    });
+
+    joinBtn.addEventListener("click", () => {
+      const roomId = roomInput.value.trim();
+      if (!roomId) {
+        setStatus("Enter a room id");
+        return;
+      }
+
+      joinGame(roomId).catch((err) => {
+        console.error(err);
+        setStatus(`Join failed: ${err.message}`);
+      });
+    });
+
+    setupGuestKeyboardInput();
+    setupGuestGamepadInput();
+
+    // Boot logic
+    hideAllGameViews();
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomFromUrl = urlParams.get("room");
+    const shouldJoin = urlParams.get("join") === "1";
+
+    if (shouldJoin && roomFromUrl) {
+      state.guestBootedFromUrl = true;
+      roomInput.value = roomFromUrl;
+
+      joinGame(roomFromUrl).catch((err) => {
+        console.error(err);
+        setStatus(`Auto-join failed: ${err.message}`);
+      });
+    } else {
+      setStatus("Idle");
+    }
+  </script>
+</body>
+</html>
