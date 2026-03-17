@@ -512,8 +512,18 @@
 
                 pc.ontrack = function(event) {
                     if (state.role === 'guest') {
-                        remoteVideo.srcObject = event.streams[0];
-                        if (webrtcVolumeSlider) remoteVideo.volume = parseInt(webrtcVolumeSlider.value, 10) / 100;
+                        remoteVideo.srcObject = (event.streams && event.streams.length) ? event.streams[0] : new MediaStream([event.track]);
+                        remoteVideo.muted = true;
+                        remoteVideo.play().catch(function(e) { console.warn('Remote video play failed:', e); });
+                        // Browsers block autoplay for unmuted media; unmute on first gesture.
+                        function unmute() {
+                            remoteVideo.muted = false;
+                            if (webrtcVolumeSlider) remoteVideo.volume = Math.max(0, Math.min(1, parseInt(webrtcVolumeSlider.value, 10) / 100));
+                            document.removeEventListener('click', unmute, true);
+                            document.removeEventListener('keydown', unmute, true);
+                        }
+                        document.addEventListener('click', unmute, true);
+                        document.addEventListener('keydown', unmute, true);
                     }
                 };
 
