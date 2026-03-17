@@ -2919,6 +2919,37 @@ static bool RunFrame(double frameTime, bool allowQuit) {
         }
     }
 
+    // Option 3: in split-screen gameplay, pan P1 left / P2 right and reduce both volumes so the mix doesn't clash.
+    {
+        static bool g_engineMixIsSplitScreen = false;
+        const bool splitScreenGameplay = IsSplitScreenMode() && (GameMode == GAME_IN_PROGRESS);
+        if (splitScreenGameplay && !g_engineMixIsSplitScreen) {
+            for (int i = 0; i < 8; ++i) {
+                if (EngineSoundBuffers[i]) {
+                    EngineSoundBuffers[i]->SetPan(-4000);
+                    EngineSoundBuffers[i]->SetVolume(AmigaVolumeToMixerGain(48 / 3));
+                }
+                if (EngineSoundBuffers2[i]) {
+                    EngineSoundBuffers2[i]->SetPan(4000);
+                    EngineSoundBuffers2[i]->SetVolume(AmigaVolumeToMixerGain(48 / 3));
+                }
+            }
+            g_engineMixIsSplitScreen = true;
+        } else if (!splitScreenGameplay && g_engineMixIsSplitScreen) {
+            for (int i = 0; i < 8; ++i) {
+                if (EngineSoundBuffers[i]) {
+                    EngineSoundBuffers[i]->SetPan(DSBPAN_CENTER);
+                    EngineSoundBuffers[i]->SetVolume(AmigaVolumeToMixerGain(48 / 2));
+                }
+                if (EngineSoundBuffers2[i]) {
+                    EngineSoundBuffers2[i]->SetPan(DSBPAN_CENTER);
+                    EngineSoundBuffers2[i]->SetVolume(AmigaVolumeToMixerGain(48 / 2));
+                }
+            }
+            g_engineMixIsSplitScreen = false;
+        }
+    }
+
     bool anyLogicFrameMoved = false;
     int stepsThisFrame = 0;
     while (g_logicAccumulator >= g_physicsStepSeconds && stepsThisFrame < MAX_PHYSICS_STEPS_PER_FRAME) {
