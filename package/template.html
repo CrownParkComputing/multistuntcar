@@ -382,6 +382,20 @@
                 webrtcStatusEl.className = 'webrtc-overlay__status' + (className ? ' ' + className : '');
             }
 
+            function notifyGuestConnected() {
+                state.guestConnected = true;
+                setWebRTCStatus('Connected', 'connected');
+                if (typeof Module !== 'undefined' && Module._SetWebRTCGuestConnected) Module._SetWebRTCGuestConnected(1);
+            }
+
+            function notifyGuestDisconnected() {
+                if (!state.guestConnected) return;
+                state.guestConnected = false;
+                state.targetPeerId = null;
+                setWebRTCStatus('Waiting for guest', 'hosting');
+                if (typeof Module !== 'undefined' && Module._SetWebRTCGuestConnected) Module._SetWebRTCGuestConnected(0);
+            }
+
             if (webrtcCopyBtn && webrtcJoinLinkInput) {
                 webrtcCopyBtn.addEventListener('click', function() {
                     var url = webrtcJoinLinkInput.value;
@@ -422,7 +436,8 @@
                 captureStream: null,
                 p2AudioStream: null,
                 p2AudioTrackAdded: false,
-                gamepadLoopHandle: null
+                gamepadLoopHandle: null,
+                guestConnected: false
             };
 
             const guestInput = {
@@ -504,28 +519,21 @@
 
                 pc.onconnectionstatechange = function() {
                     var s = pc.connectionState;
-                    if (s === 'disconnected' || s === 'failed' || s === 'closed') {
-                        if (state.role === 'host') {
-                            setWebRTCStatus('Waiting for guest', 'hosting');
-                            if (typeof Module !== 'undefined' && Module._SetWebRTCGuestConnected) Module._SetWebRTCGuestConnected(0);
-                        }
+                    if (state.role === 'host' && (s === 'disconnected' || s === 'failed' || s === 'closed')) {
+                        notifyGuestDisconnected();
                     }
                 };
                 pc.ondatachannel = function(event) {
                     state.dc = event.channel;
                     state.dc.onopen = function() {
                         if (state.role === 'host') {
-                            setWebRTCStatus('Connected', 'connected');
-                            if (typeof Module !== 'undefined' && Module._SetWebRTCGuestConnected) Module._SetWebRTCGuestConnected(1);
+                            notifyGuestConnected();
                         } else {
                             setWebRTCStatus('Connected to host', 'connected');
                         }
                     };
                     state.dc.onclose = function() {
-                        if (state.role === 'host') {
-                            setWebRTCStatus('Waiting for guest', 'hosting');
-                            if (typeof Module !== 'undefined' && Module._SetWebRTCGuestConnected) Module._SetWebRTCGuestConnected(0);
-                        }
+                        if (state.role === 'host') notifyGuestDisconnected();
                     };
                     state.dc.onmessage = function(e) {
                         if (state.role !== 'host') return;
@@ -541,8 +549,8 @@
             }
 
             function markGuestConnected() {
-                if (state.role !== 'host') return;
-                if (typeof Module !== 'undefined' && Module._SetWebRTCGuestConnected) Module._SetWebRTCGuestConnected(1);
+                if (state.role !== 'host' || state.guestConnected) return;
+                notifyGuestConnected();
             }
             function handleGuestInput(msg) {
                 markGuestConnected();
@@ -583,7 +591,9 @@
                             state.targetPeerId = others[0];
                             await startHostOffer();
                         }
-                        if (state.role === 'host' && !others.length) state.targetPeerId = null;
+                        if (state.role === 'host' && !others.length) {
+                            notifyGuestDisconnected();
+                        }
                     }
                     if (msg.type === 'offer') {
                         state.targetPeerId = msg.from;
@@ -621,16 +631,10 @@
                 if (!state.dc) {
                     state.dc = state.pc.createDataChannel('inputs');
                     state.dc.onopen = function() {
-                        if (state.role === 'host') {
-                            setWebRTCStatus('Connected', 'connected');
-                            if (typeof Module !== 'undefined' && Module._SetWebRTCGuestConnected) Module._SetWebRTCGuestConnected(1);
-                        }
+                        if (state.role === 'host') notifyGuestConnected();
                     };
                     state.dc.onclose = function() {
-                        if (state.role === 'host') {
-                            setWebRTCStatus('Waiting for guest', 'hosting');
-                            if (typeof Module !== 'undefined' && Module._SetWebRTCGuestConnected) Module._SetWebRTCGuestConnected(0);
-                        }
+                        if (state.role === 'host') notifyGuestDisconnected();
                     };
                     state.dc.onmessage = function(e) {
                         try {
