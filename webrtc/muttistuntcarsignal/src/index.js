@@ -22,8 +22,17 @@ function text(body, status = 200, extraHeaders = {}) {
   });
 }
 
+function getAllowedOrigins(env) {
+  if (env.APP_ORIGINS) {
+    return env.APP_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean);
+  }
+  if (env.APP_ORIGIN) return [env.APP_ORIGIN];
+  return [];
+}
+
 function getCorsHeaders(env, origin) {
-  if (origin && origin === env.APP_ORIGIN) {
+  const allowed = getAllowedOrigins(env);
+  if (origin && allowed.includes(origin)) {
     return {
       "Access-Control-Allow-Origin": origin,
       "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
@@ -42,7 +51,9 @@ function getCorsHeaders(env, origin) {
 }
 
 function isAllowedOrigin(env, request) {
-  return request.headers.get("Origin") === env.APP_ORIGIN;
+  const origin = request.headers.get("Origin");
+  if (!origin) return false;
+  return getAllowedOrigins(env).includes(origin);
 }
 
 function isAllowedHost(env, request) {

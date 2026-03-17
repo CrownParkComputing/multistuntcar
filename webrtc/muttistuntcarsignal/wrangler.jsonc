@@ -18,7 +18,7 @@
     }
   ],
   "vars": {
-    "APP_ORIGIN": "https://binaryfoundry.github.io",
+    "APP_ORIGINS": "https://binaryfoundry.github.io,https://retro-foundry.github.io",
     "SIGNAL_HOST": "tiny-signal.retrofoundry.workers.dev"
   }
 }
