@@ -93,6 +93,7 @@ IDirectSoundBuffer8* CreakSoundBuffer = NULL;
 IDirectSoundBuffer8* SmashSoundBuffer = NULL;
 IDirectSoundBuffer8* OffRoadSoundBuffer = NULL;
 IDirectSoundBuffer8* EngineSoundBuffers[8] = {NULL};
+IDirectSoundBuffer8* EngineSoundBuffers2[8] = {NULL};
 
 GpuTexture* g_pAtlas = NULL;
 GpuTexture* g_pCockpitAtlas = NULL;
@@ -162,7 +163,7 @@ bool bMultiplayerMode = FALSE;
 bool bFauxMultiplayerMode = FALSE;
 long bTrackDrawMode = 0;
 bool bOutsideView = FALSE;
-long engineSoundPlaying = FALSE;
+extern long engineSoundPlaying;
 double gameStartTime, gameEndTime;
 bool bSuperLeague = FALSE;
 /* Split-screen orientation: true = horizontal (top/bottom), false = vertical (left/right). */
@@ -372,6 +373,29 @@ bool DSSetMode() {
         EngineSoundBuffers[i]->SetVolume(AmigaVolumeToMixerGain(48 / 2));
     }
 
+    // Second set for player 2 (bottom split-screen) so both engines mix.
+    if ((EngineSoundBuffers2[0] = MakeSoundBuffer(ds, L"TICKOVER")) == NULL)
+        return FALSE;
+    if ((EngineSoundBuffers2[1] = MakeSoundBuffer(ds, L"ENGINEPITCH2")) == NULL)
+        return FALSE;
+    if ((EngineSoundBuffers2[2] = MakeSoundBuffer(ds, L"ENGINEPITCH3")) == NULL)
+        return FALSE;
+    if ((EngineSoundBuffers2[3] = MakeSoundBuffer(ds, L"ENGINEPITCH4")) == NULL)
+        return FALSE;
+    if ((EngineSoundBuffers2[4] = MakeSoundBuffer(ds, L"ENGINEPITCH5")) == NULL)
+        return FALSE;
+    if ((EngineSoundBuffers2[5] = MakeSoundBuffer(ds, L"ENGINEPITCH6")) == NULL)
+        return FALSE;
+    if ((EngineSoundBuffers2[6] = MakeSoundBuffer(ds, L"ENGINEPITCH7")) == NULL)
+        return FALSE;
+    if ((EngineSoundBuffers2[7] = MakeSoundBuffer(ds, L"ENGINEPITCH8")) == NULL)
+        return FALSE;
+
+    for (i = 0; i < 8; i++) {
+        EngineSoundBuffers2[i]->SetPan(DSBPAN_CENTER);
+        EngineSoundBuffers2[i]->SetVolume(AmigaVolumeToMixerGain(48 / 2));
+    }
+
     return TRUE;
 }
 
@@ -396,6 +420,8 @@ void DSTerm() {
     for (int i = 0; i < 8; i++) {
         if (EngineSoundBuffers[i])
             EngineSoundBuffers[i]->Release(), EngineSoundBuffers[i] = NULL;
+        if (EngineSoundBuffers2[i])
+            EngineSoundBuffers2[i]->Release(), EngineSoundBuffers2[i] = NULL;
     }
 
     if (ds)
@@ -1080,22 +1106,35 @@ static void SetOpponentsCarWorldTransform(void) {
 }
 
 static void RestartEngineAudioBuffers(bool resetEngineModel) {
-    if (!IsAudioEnabled()) {
-        engineSoundPlaying = FALSE;
-        if (resetEngineModel)
-            ResetEngineAudioState();
-        return;
-    }
+    const bool splitScreen = IsSplitScreenMode();
 
+    // Stop all active engine buffer sets regardless of audio-enabled flag.
     for (int i = 0; i < 8; ++i) {
         if (EngineSoundBuffers[i]) {
             EngineSoundBuffers[i]->Stop();
             EngineSoundBuffers[i]->SetCurrentPosition(0);
         }
+        if (splitScreen && EngineSoundBuffers2[i]) {
+            EngineSoundBuffers2[i]->Stop();
+            EngineSoundBuffers2[i]->SetCurrentPosition(0);
+        }
     }
-    engineSoundPlaying = FALSE;
-    if (resetEngineModel)
-        ResetEngineAudioState();
+
+    // Reset engineSoundPlaying (and optionally the engine model) per instance
+    // so the per-instance state stays consistent.
+    if (splitScreen) {
+        const long prev0 = PushCarBehaviourInstance(0);
+        engineSoundPlaying = FALSE;
+        if (resetEngineModel) ResetEngineAudioState();
+        PopCarBehaviourInstance(prev0);
+        const long prev1 = PushCarBehaviourInstance(1);
+        engineSoundPlaying = FALSE;
+        if (resetEngineModel) ResetEngineAudioState();
+        PopCarBehaviourInstance(prev1);
+    } else {
+        engineSoundPlaying = FALSE;
+        if (resetEngineModel) ResetEngineAudioState();
+    }
 }
 
 void RequestRestartEngineAudioOnFirstInput(void) {
@@ -2892,20 +2931,49 @@ static bool RunFrame(double frameTime, bool allowQuit) {
         if ((GameMode == GAME_IN_PROGRESS) && (!bPaused)) {
             // lastInput is player-1 driving input (gamepad in multiplayer mode).
             const DWORD drivingInputMask = KEY_P1_LEFT | KEY_P1_RIGHT | KEY_P1_ACCEL | KEY_P1_BRAKE | KEY_P1_BOOST;
+            const bool splitScreen = IsSplitScreenMode();
             if (g_restartEngineAudioOnFirstInput) {
                 // Keep engine audio fully silent until the first gameplay input (keyboard or gamepad),
                 // but continue advancing engine state so revs are prewarmed.
-                StepEngineAudioStateSubstep(g_physicsSubstepsPerBaseLogic);
+                if (splitScreen) {
+                    const long prev0 = PushCarBehaviourInstance(0);
+                    StepEngineAudioStateSubstep(g_physicsSubstepsPerBaseLogic);
+                    PopCarBehaviourInstance(prev0);
+                    const long prev1 = PushCarBehaviourInstance(1);
+                    StepEngineAudioStateSubstep(g_physicsSubstepsPerBaseLogic);
+                    PopCarBehaviourInstance(prev1);
+                } else {
+                    StepEngineAudioStateSubstep(g_physicsSubstepsPerBaseLogic);
+                }
                 if ((lastInput & drivingInputMask) != 0) {
                     RestartEngineAudioBuffers(false);
-                    PrimeEngineAudioForGameplayStart();
+                    if (splitScreen) {
+                        const long prev0 = PushCarBehaviourInstance(0);
+                        PrimeEngineAudioForGameplayStart();
+                        PopCarBehaviourInstance(prev0);
+                        const long prev1 = PushCarBehaviourInstance(1);
+                        PrimeEngineAudioForGameplayStart();
+                        PopCarBehaviourInstance(prev1);
+                    } else {
+                        PrimeEngineAudioForGameplayStart();
+                    }
                     g_restartEngineAudioOnFirstInput = false;
                     FramesWheelsEngineSubstep(EngineSoundBuffers, g_physicsSubstepsPerBaseLogic);
+                    if (splitScreen) {
+                        const long prev1 = PushCarBehaviourInstance(1);
+                        FramesWheelsEngineSubstep(EngineSoundBuffers2, g_physicsSubstepsPerBaseLogic);
+                        PopCarBehaviourInstance(prev1);
+                    }
                 } else if (engineSoundPlaying) {
                     RestartEngineAudioBuffers(false);
                 }
             } else {
                 FramesWheelsEngineSubstep(EngineSoundBuffers, g_physicsSubstepsPerBaseLogic);
+                if (splitScreen) {
+                    const long prev1 = PushCarBehaviourInstance(1);
+                    FramesWheelsEngineSubstep(EngineSoundBuffers2, g_physicsSubstepsPerBaseLogic);
+                    PopCarBehaviourInstance(prev1);
+                }
             }
         }
 

@@ -3446,7 +3446,7 @@ static void UpdateEngineRevs(void) {
 /*    Description:                */
 /*    ======================================================================================= */
 
-extern long engineSoundPlaying;
+long engineSoundPlaying = FALSE;
 
 int enginePeriod = 198;
 int engineSoundIndex = -1;
@@ -3617,7 +3617,8 @@ static int pendingEngineSoundIndexCount = 0;
     X(long, wheel_right_step_remainder)             \
     X(long, engine_revs_step_remainder)             \
     X(int, pendingEngineSoundIndex)                 \
-    X(int, pendingEngineSoundIndexCount)
+    X(int, pendingEngineSoundIndexCount)            \
+    X(long, engineSoundPlaying)
 
 struct CarBehaviourInstanceState {
 #define CAR_BEHAVIOUR_INSTANCE_FIELD(type, name) type name;
