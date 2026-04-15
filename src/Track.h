@@ -117,4 +117,9 @@ extern void FreeGroundPlaneVertexBuffer(void);
 
 extern void DrawGroundPlane(RenderDevice* pDevice);
 
+// Three.js / JS export: flat vertex buffer of track geometry.
+// Each vertex is 6 floats: [x, y, z, r, g, b] in game-internal units.
+extern int GetTrackJSVertexCount(void);
+extern void FillTrackJSVertices(float* buf);
+
 #endif /* _TRACK */

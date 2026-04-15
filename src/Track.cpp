@@ -2142,3 +2142,96 @@ static void* GetTRACKResource(HMODULE hModule, LPCWSTR lpResName) {
 #endif
     return (void*)pTRACKBytes;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Three.js / JS export: track geometry as a flat vertex buffer.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Helper: write one vertex ([x,y,z,r,g,b]) into buf at *idx and advance *idx by 6.
+// color is packed as RGBA_MAKE (bits 7-0=R, 15-8=G, 23-16=B, 31-24=A).
+// Alpha is always 255 from SCRGB and is intentionally not exported to the vertex buffer.
+static void WriteJSVertex(float* buf, int* idx, glm::vec3 pos, DWORD color) {
+    buf[(*idx)++] = pos.x;
+    buf[(*idx)++] = pos.y;
+    buf[(*idx)++] = pos.z;
+    buf[(*idx)++] = ((color >> 0) & 0xFF) / 255.0f;
+    buf[(*idx)++] = ((color >> 8) & 0xFF) / 255.0f;
+    buf[(*idx)++] = ((color >> 16) & 0xFF) / 255.0f;
+}
+
+// Returns the total number of vertices that FillTrackJSVertices will write.
+// Each vertex is 6 floats: [x, y, z, r, g, b].
+// 3 faces * 2 triangles * 3 vertices = 18 vertices per segment.
+int GetTrackJSVertexCount(void) {
+    int total = 0;
+    for (long p = 0; p < NumTrackPieces; p++) {
+        total += (int)Track[p].numSegments * 18;
+    }
+    return total;
+}
+
+// Fills buf with track geometry: [x, y, z, r, g, b] per vertex.
+// Caller must allocate GetTrackJSVertexCount() * 6 floats.
+// Y coordinates are in game-internal convention (larger Y = lower altitude).
+// Three.js renderers should negate Y to obtain standard Y-up world space.
+void FillTrackJSVertices(float* buf) {
+    int idx = 0;
+    for (long piece = 0; piece < NumTrackPieces; piece++) {
+        const long piece_x = Track[piece].x << (LOG_CUBE_SIZE - LOG_PRECISION);
+        const long piece_y = Track[piece].y << (LOG_CUBE_SIZE - LOG_PRECISION);
+        const long piece_z = Track[piece].z << (LOG_CUBE_SIZE - LOG_PRECISION);
+        const int numSeg = (int)Track[piece].numSegments;
+        const DWORD sidesColour = SCRGB(Track[piece].sidesColour);
+
+        for (int s = 0; s < numSeg; s++) {
+            const long offset = s * 4;
+
+            // ── ROAD face (top surface) ────────────────────────────────────
+            BYTE roadColourIndex = Track[piece].roadColour[s];
+            if ((piece == StartLinePiece) && (s == numSeg - 1))
+                roadColourIndex = SCR_BASE_COLOUR + 15;  // white start line
+            const DWORD roadColour = SCRGB(roadColourIndex);
+
+            const glm::vec3 r0 = GetPieceVertex(piece, piece_x, piece_y, piece_z, offset);
+            const glm::vec3 r4 = GetPieceVertex(piece, piece_x, piece_y, piece_z, offset + 4);
+            const glm::vec3 r5 = GetPieceVertex(piece, piece_x, piece_y, piece_z, offset + 5);
+            const glm::vec3 r1 = GetPieceVertex(piece, piece_x, piece_y, piece_z, offset + 1);
+            // triangle 1: (0, 4, 5)
+            WriteJSVertex(buf, &idx, r0, roadColour);
+            WriteJSVertex(buf, &idx, r4, roadColour);
+            WriteJSVertex(buf, &idx, r5, roadColour);
+            // triangle 2: (0, 5, 1)
+            WriteJSVertex(buf, &idx, r0, roadColour);
+            WriteJSVertex(buf, &idx, r5, roadColour);
+            WriteJSVertex(buf, &idx, r1, roadColour);
+
+            // ── LEFT_SIDE face ─────────────────────────────────────────────
+            const glm::vec3 l0 = GetPieceVertex(piece, piece_x, piece_y, piece_z, offset);
+            const glm::vec3 l2 = GetPieceVertex(piece, piece_x, piece_y, piece_z, offset + 2);
+            const glm::vec3 l6 = GetPieceVertex(piece, piece_x, piece_y, piece_z, offset + 6);
+            const glm::vec3 l4 = GetPieceVertex(piece, piece_x, piece_y, piece_z, offset + 4);
+            // triangle 1: (0, 2, 6)
+            WriteJSVertex(buf, &idx, l0, sidesColour);
+            WriteJSVertex(buf, &idx, l2, sidesColour);
+            WriteJSVertex(buf, &idx, l6, sidesColour);
+            // triangle 2: (0, 6, 4)
+            WriteJSVertex(buf, &idx, l0, sidesColour);
+            WriteJSVertex(buf, &idx, l6, sidesColour);
+            WriteJSVertex(buf, &idx, l4, sidesColour);
+
+            // ── RIGHT_SIDE face ────────────────────────────────────────────
+            const glm::vec3 rs5 = GetPieceVertex(piece, piece_x, piece_y, piece_z, offset + 5);
+            const glm::vec3 rs7 = GetPieceVertex(piece, piece_x, piece_y, piece_z, offset + 7);
+            const glm::vec3 rs3 = GetPieceVertex(piece, piece_x, piece_y, piece_z, offset + 3);
+            const glm::vec3 rs1 = GetPieceVertex(piece, piece_x, piece_y, piece_z, offset + 1);
+            // triangle 1: (5, 7, 3)
+            WriteJSVertex(buf, &idx, rs5, sidesColour);
+            WriteJSVertex(buf, &idx, rs7, sidesColour);
+            WriteJSVertex(buf, &idx, rs3, sidesColour);
+            // triangle 2: (5, 3, 1)
+            WriteJSVertex(buf, &idx, rs5, sidesColour);
+            WriteJSVertex(buf, &idx, rs3, sidesColour);
+            WriteJSVertex(buf, &idx, rs1, sidesColour);
+        }
+    }
+}
