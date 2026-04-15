@@ -413,17 +413,20 @@ window.Module = {
     // Called when the WASM module and all preloaded assets are ready.
     onRuntimeInitialized: onWasmReady,
 
-    // Silence Emscripten's default print-to-stdout noise in the console.
-    print:    (t) => {},
+    // Suppress Emscripten's default verbose stdout (asset loading progress, version info).
+    // Use console.log with prefix if you need to debug WASM startup output.
+    print:    (t) => { /* suppress */ },
     printErr: (t) => console.warn('[WASM]', t),
 };
 
 setLoadingProgress(5, 'Loading engine…');
 
 // Dynamically load the compiled WASM JS bundle.
-// The path assumes both files live in the same directory (e.g. a CMake build output).
-// Adjust WASM_JS_PATH to match your deployment layout if needed.
-const WASM_JS_PATH = '../stuntcarracer.js';  // relative to web/index.html
+// WASM_JS_PATH is relative to web/ (the directory where game.js lives).
+// The default assumes the Emscripten build output (stuntcarracer.js) sits one
+// level above web/ (i.e. in the CMake build directory alongside index.html).
+// Adjust to './stuntcarracer.js' if both files are deployed in the same directory.
+const WASM_JS_PATH = '../stuntcarracer.js';
 const s = document.createElement('script');
 s.src = WASM_JS_PATH;
 s.onerror = () => {

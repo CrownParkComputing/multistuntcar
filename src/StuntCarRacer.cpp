@@ -3194,6 +3194,10 @@ static bool RunFrame(double frameTime, bool allowQuit) {
 }
 
 #ifdef __EMSCRIPTEN__
+// Flag that suppresses the SDL/OpenGL render loop so Three.js can take over.
+// Set via js_set_headless(1) before calling js_select_track().
+static bool g_headlessMode = false;
+
 void em_main_loop() {
     // In headless mode Three.js drives all rendering and physics via the JS bridge API;
     // the SDL/OpenGL loop must not run physics or render anything.
@@ -3562,10 +3566,6 @@ int main(int argc, const char** argv) {
 //           Three.js renderers must negate Y to get standard Y-up world space.
 //   - Angles: radians.
 // ─────────────────────────────────────────────────────────────────────────────
-
-// Flag that suppresses the SDL/OpenGL render loop so Three.js can take over.
-// Set via js_set_headless(1) before calling js_select_track().
-static bool g_headlessMode = false;
 
 extern "C" {
 

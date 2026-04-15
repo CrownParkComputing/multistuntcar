@@ -2148,7 +2148,8 @@ static void* GetTRACKResource(HMODULE hModule, LPCWSTR lpResName) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Helper: write one vertex ([x,y,z,r,g,b]) into buf at *idx and advance *idx by 6.
-// color is packed as RGBA_MAKE (bits 7-0=R, 15-8=G, 23-16=B).
+// color is packed as RGBA_MAKE (bits 7-0=R, 15-8=G, 23-16=B, 31-24=A).
+// Alpha is always 255 from SCRGB and is intentionally not exported to the vertex buffer.
 static void WriteJSVertex(float* buf, int* idx, glm::vec3 pos, DWORD color) {
     buf[(*idx)++] = pos.x;
     buf[(*idx)++] = pos.y;
