@@ -3195,6 +3195,11 @@ static bool RunFrame(double frameTime, bool allowQuit) {
 
 #ifdef __EMSCRIPTEN__
 void em_main_loop() {
+    // In headless mode Three.js drives all rendering and physics via the JS bridge API;
+    // the SDL/OpenGL loop must not run physics or render anything.
+    if (g_headlessMode)
+        return;
+
     /* Poll canvas/window size when JS resize() has updated the canvas dimensions */
     if (window) {
         int w, h;
@@ -3545,3 +3550,189 @@ int main(int argc, const char** argv) {
 
     exit(0);
 }
+
+#ifdef __EMSCRIPTEN__
+// ─────────────────────────────────────────────────────────────────────────────
+// Three.js / JavaScript bridge API.
+// These symbols are exported to JS via EMSCRIPTEN_KEEPALIVE / EXPORTED_FUNCTIONS.
+//
+// Coordinate convention for callers:
+//   - X, Z: track render units (0 – ~65 000); same scale as GetPieceVertex output.
+//   - Y:    game-internal Y-down convention (larger value = lower altitude).
+//           Three.js renderers must negate Y to get standard Y-up world space.
+//   - Angles: radians.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Flag that suppresses the SDL/OpenGL render loop so Three.js can take over.
+// Set via js_set_headless(1) before calling js_select_track().
+static bool g_headlessMode = false;
+
+extern "C" {
+
+// Switch headless mode on (1) or off (0).
+// When on, em_main_loop() becomes a no-op; Three.js drives physics and rendering.
+EMSCRIPTEN_KEEPALIVE void js_set_headless(int headless) {
+    g_headlessMode = (headless != 0);
+}
+
+// Load track trackId (0..7) and initialise GAME_IN_PROGRESS state.
+// Returns 1 on success, 0 on failure.
+// Call js_set_headless(1) before this function.
+EMSCRIPTEN_KEEPALIVE int js_select_track(int trackId) {
+    if (!ConvertAmigaTrack(trackId))
+        return 0;
+
+    bMultiplayerMode = FALSE;
+    bFauxMultiplayerMode = FALSE;
+    bSuperLeague = FALSE;
+    road_cushion_value = 0;
+    engine_power = 240;
+    boost_unit_value = 16;
+    opp_engine_power = 236;
+    damaged_limit = ResolveDamagedLimitForTrackLeague();
+    InitialiseBoostStartStateForRace(StandardBoost);
+
+    bNewGame = TRUE;
+    GameMode = GAME_IN_PROGRESS;
+    bPaused = FALSE;
+    bPlayerPaused = FALSE;
+    bOpponentPaused = FALSE;
+    lastInput = 0;
+    keyPress = '\0';
+    g_restartEngineAudioOnFirstInput = false;
+
+    ResetFourteenFrameTiming();
+    ResetLapData(OPPONENT);
+    ResetLapData(PLAYER);
+    ResetDrawBridge();
+    ResetPlayer();
+
+    g_logicTickAccumulator = g_logicTickInterval;
+    g_logicAccumulator = g_physicsStepSeconds;
+    g_logicInput = 0;
+    ResetControlSamplingWindow();
+
+    gameStartTime = GetTimeSeconds();
+    gameEndTime = 0;
+
+    UpdateProjectedRenderPositions();
+    CapturePreviousCarState();
+
+    return 1;
+}
+
+// Reset the player car to its start position.
+EMSCRIPTEN_KEEPALIVE void js_reset_player(void) {
+    ResetPlayer();
+    ResetLapData(PLAYER);
+    ResetDrawBridge();
+    bNewGame = TRUE;
+    UpdateProjectedRenderPositions();
+    CapturePreviousCarState();
+}
+
+// Advance physics by one substep (call at 60 Hz from requestAnimationFrame).
+// dt:    timestep in seconds; pass 1.0/60.0 for standard 60 Hz.
+// input: bitmask – KEY_P1_LEFT=1, KEY_P1_RIGHT=2, KEY_P1_ACCEL=4,
+//                  KEY_P1_BRAKE=8, KEY_P1_BOOST=16.
+EMSCRIPTEN_KEEPALIVE void js_step_physics(float dt, unsigned int input) {
+    if (GameMode != GAME_IN_PROGRESS || bPaused)
+        return;
+
+    const float stepSec = (dt > 0.0f) ? dt : (float)g_physicsStepSeconds;
+    lastInput = (DWORD)input;
+
+    CapturePreviousCarState();
+    if (!bPlayerPaused) {
+        CarBehaviour((DWORD)input, &player1_x, &player1_y, &player1_z,
+                     &player1_x_angle, &player1_y_angle, &player1_z_angle,
+                     stepSec);
+    }
+    LimitViewpointY(&player1_y);
+    UpdateProjectedRenderPositions();
+    CalcGameViewpoint();
+    viewpoint1_x >>= LOG_PRECISION;
+    viewpoint1_z >>= LOG_PRECISION;
+
+    MoveDrawBridge();
+
+    // Game-logic tick at ~7.14 Hz: damage, boost, lap data.
+    g_logicTickAccumulator += stepSec;
+    while (g_logicTickAccumulator >= g_logicTickInterval) {
+        g_logicTickAccumulator -= g_logicTickInterval;
+        g_logicInput = (DWORD)input;
+        AdvanceFourteenFrameTiming();
+        UpdateLapData();
+        AdvanceBoostReserve(g_logicInput);
+        BeginLogicTickDamagePeriodForActiveCars();
+        UpdateDamageForActiveCars();
+    }
+
+    if (bNewGame)
+        bNewGame = FALSE;
+}
+
+// Fill buf with the player 1 state (must point to at least 7 floats):
+//   [0] x         – render units (player1_render_x / PRECISION)
+//   [1] y         – render units, Y-down (player1_render_y / PRECISION)
+//   [2] z         – render units
+//   [3] x_angle   – radians
+//   [4] y_angle   – radians
+//   [5] z_angle   – radians
+//   [6] speed     – display speed (km/h equivalent)
+EMSCRIPTEN_KEEPALIVE void js_get_player_state(float* buf) {
+    buf[0] = FixedPointToWorldCoord(player1_render_x);
+    buf[1] = FixedPointToWorldCoord(player1_render_y);
+    buf[2] = FixedPointToWorldCoord(player1_render_z);
+    buf[3] = PlayerAngleToRadians(player1_x_angle);
+    buf[4] = PlayerAngleToRadians(player1_y_angle);
+    buf[5] = PlayerAngleToRadians(player1_z_angle);
+    buf[6] = (float)CalculateDisplaySpeed();
+}
+
+// Fill buf with the camera viewpoint (must point to at least 6 floats):
+//   [0] vx        – render units (viewpoint1_x already >>= LOG_PRECISION)
+//   [1] vy        – render units, Y-down (viewpoint1_y / PRECISION)
+//   [2] vz        – render units (viewpoint1_z already >>= LOG_PRECISION)
+//   [3] x_angle   – radians
+//   [4] y_angle   – radians
+//   [5] z_angle   – radians
+EMSCRIPTEN_KEEPALIVE void js_get_viewpoint(float* buf) {
+    buf[0] = (float)viewpoint1_x;
+    buf[1] = FixedPointToWorldCoord(viewpoint1_y);
+    buf[2] = (float)viewpoint1_z;
+    buf[3] = PlayerAngleToRadians(viewpoint1_x_angle);
+    buf[4] = PlayerAngleToRadians(viewpoint1_y_angle);
+    buf[5] = PlayerAngleToRadians(viewpoint1_z_angle);
+}
+
+// Returns the current lap number for player 1.
+EMSCRIPTEN_KEEPALIVE int js_get_lap(void) {
+    return (int)lapNumber[PLAYER];
+}
+
+// Returns the current game mode:
+//   0 = TRACK_MENU, 1 = TRACK_PREVIEW, 2 = GAME_IN_PROGRESS, 3 = GAME_OVER
+EMSCRIPTEN_KEEPALIVE int js_get_game_mode(void) {
+    return (int)GameMode;
+}
+
+// Returns total number of track vertices (each vertex is 6 floats: x,y,z,r,g,b).
+EMSCRIPTEN_KEEPALIVE int js_get_track_vertex_count(void) {
+    return GetTrackJSVertexCount();
+}
+
+// Fills buf with track geometry: [x, y, z, r, g, b] per vertex.
+// buf must be js_get_track_vertex_count() * 6 floats.
+// Y coordinates are in game-internal Y-down convention; Three.js should negate Y.
+EMSCRIPTEN_KEEPALIVE void js_fill_track_vertices(float* buf) {
+    FillTrackJSVertices(buf);
+}
+
+// Returns the PRECISION constant (16384) used for fixed-point to world conversion.
+EMSCRIPTEN_KEEPALIVE int js_get_precision(void) {
+    return (int)(1 << LOG_PRECISION);
+}
+
+} // extern "C"
+#endif // __EMSCRIPTEN__

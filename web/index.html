@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MultiStuntCar – Three.js</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #000; color: #fff; font-family: monospace; overflow: hidden; }
+
+    /* Three.js render target */
+    #threejs-canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    /* Tiny hidden SDL canvas required by Emscripten */
+    #canvas {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* ── HUD overlay ─────────────────────────────────────────────── */
+    #hud {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      display: none;   /* shown once game starts */
+    }
+
+    /* Speed bar */
+    #speed-bar-wrap {
+      position: absolute;
+      bottom: 24px; left: 50%;
+      transform: translateX(-50%);
+      width: 260px;
+    }
+    #speed-label {
+      text-align: center;
+      font-size: 13px;
+      color: #0f0;
+      margin-bottom: 4px;
+    }
+    #speed-bg {
+      background: #111;
+      border: 1px solid #0f0;
+      height: 10px;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    #speed-fill {
+      height: 100%;
+      width: 0%;
+      background: #0f0;
+      transition: width 0.05s linear;
+    }
+
+    /* Lap counter */
+    #lap-counter {
+      position: absolute;
+      top: 16px; right: 20px;
+      font-size: 22px;
+      color: #fff;
+      text-shadow: 1px 1px 3px #000;
+    }
+
+    /* Damage holes */
+    #damage-wrap {
+      position: absolute;
+      top: 16px; left: 20px;
+      display: flex;
+      gap: 6px;
+    }
+    .hole {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #222;
+      border: 2px solid #555;
+    }
+    .hole.hit {
+      background: #f00;
+      border-color: #a00;
+    }
+
+    /* Track selection menu */
+    #menu {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.85);
+      border: 2px solid #555;
+      border-radius: 8px;
+      padding: 32px 48px;
+      text-align: center;
+      min-width: 320px;
+    }
+    #menu h1 { font-size: 26px; margin-bottom: 24px; color: #ff0; letter-spacing: 2px; }
+    #menu p  { font-size: 12px; color: #888; margin-top: 16px; }
+    #track-select {
+      width: 100%;
+      font-size: 16px;
+      padding: 8px;
+      background: #222;
+      color: #fff;
+      border: 1px solid #555;
+      border-radius: 4px;
+      margin-bottom: 16px;
+    }
+    #start-btn {
+      padding: 10px 32px;
+      font-size: 16px;
+      background: #080;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      letter-spacing: 1px;
+    }
+    #start-btn:hover { background: #0a0; }
+    #start-btn:disabled { background: #444; cursor: default; }
+
+    /* Loading overlay */
+    #loading {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      z-index: 100;
+    }
+    #loading-bar-wrap {
+      width: 280px;
+      height: 10px;
+      background: #222;
+      border: 1px solid #555;
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 16px;
+    }
+    #loading-bar { height: 100%; width: 0%; background: #08f; }
+
+    #controls-hint {
+      position: fixed;
+      bottom: 60px; left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px;
+      color: #555;
+      text-align: center;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Three.js rendering surface -->
+  <canvas id="threejs-canvas"></canvas>
+
+  <!-- Tiny hidden SDL surface for Emscripten -->
+  <canvas id="canvas"></canvas>
+
+  <!-- Loading screen -->
+  <div id="loading">
+    <span id="loading-text">Loading…</span>
+    <div id="loading-bar-wrap"><div id="loading-bar"></div></div>
+  </div>
+
+  <!-- Track selection menu (shown after loading) -->
+  <div id="menu" style="display:none">
+    <h1>MULTI STUNT CAR</h1>
+    <select id="track-select">
+      <option value="0">Little Ramp</option>
+      <option value="1">Stepping Stones</option>
+      <option value="2">Hump Back</option>
+      <option value="3">Big Ramp</option>
+      <option value="4">Ski Jump</option>
+      <option value="5">Draw Bridge</option>
+      <option value="6">High Jump</option>
+      <option value="7">Roller Coaster</option>
+    </select>
+    <br>
+    <button id="start-btn" disabled>Start Race</button>
+    <p>Arrow keys: Steer/Accel/Brake &nbsp;|&nbsp; Space/Shift: Boost<br>M: Back to menu</p>
+  </div>
+
+  <!-- In-game HUD -->
+  <div id="hud">
+    <div id="lap-counter">Lap: <span id="lap-value">1</span></div>
+    <div id="damage-wrap">
+      <div class="hole" id="hole0"></div>
+      <div class="hole" id="hole1"></div>
+      <div class="hole" id="hole2"></div>
+      <div class="hole" id="hole3"></div>
+      <div class="hole" id="hole4"></div>
+      <div class="hole" id="hole5"></div>
+    </div>
+    <div id="speed-bar-wrap">
+      <div id="speed-label">Speed: <span id="speed-value">0</span></div>
+      <div id="speed-bg"><div id="speed-fill"></div></div>
+    </div>
+  </div>
+
+  <div id="controls-hint">
+    ↑ Accelerate &nbsp;↓ Brake &nbsp;← → Steer &nbsp;Space/Shift Boost &nbsp;M Menu
+  </div>
+
+  <!-- Three.js from CDN -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js"
+    }
+  }
+  </script>
+
+  <script type="module" src="game.js"></script>
+</body>
+</html>

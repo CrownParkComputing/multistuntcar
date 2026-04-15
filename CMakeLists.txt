@@ -71,7 +71,7 @@ if(EMSCRIPTEN)
     "SHELL:-sALLOW_MEMORY_GROWTH=1"
     "SHELL:-sINITIAL_MEMORY=20971520"
     "SHELL:--emrun"
-    "SHELL:-sEXPORTED_FUNCTIONS=_main,_SetWebRTCGuestConnected,_SetWebRTCGuestPlayer2Input"
+    "SHELL:-sEXPORTED_FUNCTIONS=_main,_SetWebRTCGuestConnected,_SetWebRTCGuestPlayer2Input,_js_set_headless,_js_select_track,_js_reset_player,_js_step_physics,_js_get_player_state,_js_get_viewpoint,_js_get_lap,_js_get_game_mode,_js_get_track_vertex_count,_js_fill_track_vertices,_js_get_precision"
   )
 
   # glm headers for Emscripten (no system SDL/glm, so fetch glm).
