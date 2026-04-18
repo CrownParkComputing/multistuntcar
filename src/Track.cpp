@@ -728,6 +728,7 @@ long ConvertAmigaTrack(long track) {
     COORD_XZ* pieceXZ;
 
     BYTE roadColour, sidesColour;
+    const bool useTntColourScheme = (gTrackPack == TRACK_PACK_TNT);
     if (first_time) {
         ConvertAmigaPieceData();
         first_time = FALSE;
@@ -792,9 +793,10 @@ long ConvertAmigaTrack(long track) {
         Track[piece].initialColour = (static_cast<long>(Right_Y_Coordinate_ID[piece]) & 0x80) >> 7;
 
         // decide road/side surface colours
+        // TNT tracks use the greener colour set from SCR-TNT even in Standard league.
         if (piece & 1) {
             // odd numbered section (light)
-            if (bSuperLeague) {
+            if (bSuperLeague || useTntColourScheme) {
                 roadColour = SCR_BASE_COLOUR + 17;
                 sidesColour = SCR_BASE_COLOUR + 16;
             } else {
@@ -803,7 +805,7 @@ long ConvertAmigaTrack(long track) {
             }
         } else {
             // even numbered section (dark)
-            if (bSuperLeague) {
+            if (bSuperLeague || useTntColourScheme) {
                 roadColour = SCR_BASE_COLOUR + 18;
                 sidesColour = SCR_BASE_COLOUR + 15;
             } else {
