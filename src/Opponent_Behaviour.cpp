@@ -11,6 +11,7 @@
 
 #include <stdlib.h>
 #include <cmath>
+#include <cstring>
 
 #include "StuntCarRacer.h"
 #include "Opponent_Behaviour.h"
@@ -68,9 +69,9 @@ extern unsigned char sections_car_can_be_put_on[]; // both array are used for op
 extern char Piece_Angle_And_Template[MAX_PIECES_PER_TRACK];
 extern long fourteen_frames_elapsed;
 
-// Values for each piece of each track (Global because MoveDrawBridge() modifies the Draw Bridge values)
-// NOTE: These are the original Amiga tables for the Standard league; Super league values are generated at runtime.
-unsigned char opponents_speed_values[NUM_TRACKS][MAX_PIECES_PER_TRACK] = {
+// Values for each piece of each track used in Standard league.
+// `opponents_speed_values` is mutable because MoveDrawBridge() updates the active row.
+static const unsigned char kClassicStandardOpponentSpeedValues[NUM_TRACKS][MAX_PIECES_PER_TRACK] = {
     {/* Little Ramp data */
      0x76, 0x6c, 0x62, 0x58, 0x7a, 0x7a, 0x70, 0x66, 0x5c, 0x52, 0x48, 0x48, 0x48, 0x7a, 0x7a,
      0x7a, 0x7a, 0x7a, 0x7a, 0x7a, 0x70, 0x66, 0x5c, 0x52, 0x48, 0x48, 0x48, 0x48, 0x78, 0x6e,
@@ -109,6 +110,60 @@ unsigned char opponents_speed_values[NUM_TRACKS][MAX_PIECES_PER_TRACK] = {
      0x7e, 0x7e, 0x7e, 0x74, 0x6a, 0x60, 0x56, 0x56, 0x56, 0x56, 0x56, 0x7e, 0x7e, 0x7e, 0x7e, 0x7e,
      0x7e, 0x74, 0x6a, 0x60, 0x56, 0x56, 0x56, 0x56, 0x56, 0x7e, 0x7e, 0x7e, 0x7e, 0x7e, 0x7e, 0x74,
      0x6a, 0x60, 0x56, 0x56, 0x56, 0x7e, 0x7e, 0x74, 0x6a, 0x60, 0x56, 0x56, 0x5a, 0x52}};
+
+static const unsigned char kTntStandardOpponentSpeedValues[NUM_TRACKS][MAX_PIECES_PER_TRACK] = {
+    {/* DizzyDescent data */
+     0x5c, 0x52, 0x48, 0x48, 0x48, 0xf8, 0xee, 0xe4, 0xda, 0x7a, 0x7a, 0x7a, 0x70, 0x66, 0x5c,
+     0x52, 0x48, 0x48, 0x48, 0x70, 0x66, 0x5c, 0x52, 0x48, 0x48, 0x48, 0x48, 0x50, 0x46, 0x5c,
+     0x52, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x78, 0x6e, 0x66, 0x5c, 0x52, 0x48, 0x48, 0x52,
+     0x48, 0x48, 0x48, 0x7a, 0x7a, 0x7a, 0x70, 0x66, 0x5c, 0x52, 0x48, 0x48, 0x48, 0x7a, 0x7a,
+     0x7a, 0x7a, 0x7a, 0x7a, 0x7a, 0x70, 0x66},
+    {/* WittyWay data */
+     0x5f, 0x55, 0x4b, 0x41, 0x41, 0x7d, 0x73, 0x69, 0x5f, 0x55, 0x4b, 0x41, 0x41, 0x2d, 0x23,
+     0x19, 0x4b, 0x41, 0x41, 0x41, 0x41, 0x4b, 0x41, 0x41, 0x5f, 0x55, 0x4b, 0x41, 0x41, 0x5f,
+     0x55, 0x4b, 0x41, 0x41, 0x69, 0x5f, 0x55, 0x4b, 0x41, 0x41, 0x41, 0x69},
+    {/* CrazyCaper data */
+     0x45, 0x45, 0x45, 0x1e, 0x14, 0x0a, 0x77, 0x77, 0x77, 0x77, 0x6d, 0x63, 0x59, 0x4f, 0x45,
+     0x45, 0x45, 0x4f, 0x45, 0x45, 0x45, 0x77, 0x77, 0x6d, 0x63, 0x59, 0x4f, 0x45, 0x45, 0x45,
+     0x4f, 0x45, 0x45, 0x45, 0x77, 0x77, 0x6d, 0x63, 0x59, 0x4f, 0x45, 0x45, 0x45, 0x4f, 0x45,
+     0x45, 0x45, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x6d, 0x63, 0x59, 0x4f, 0x45, 0x45,
+     0x45, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x6d, 0x63, 0x59, 0x4f},
+    {/* AmazingAdept data */
+     0x28, 0x66, 0x5c, 0x52, 0x48, 0x48, 0x37, 0x2d, 0x23, 0x28, 0x52, 0x48, 0x48, 0x48, 0x48,
+     0x48, 0x40, 0x36, 0x2c, 0x22, 0x18, 0x48, 0x7a, 0x70, 0x66, 0x5c, 0x52, 0x48, 0x48, 0x48,
+     0x66, 0x5c, 0x52, 0x48, 0x48, 0x19, 0x48, 0x48, 0x7a, 0x70, 0x66, 0x5c, 0x52, 0x48, 0x48,
+     0x7a, 0x70, 0x66, 0x5c, 0x52, 0x48, 0x48, 0x48, 0x32},
+    {/* JerkilyJump data */
+     0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x6d, 0x63, 0x59, 0x4f, 0x4f, 0x4f, 0x4f, 0x59,
+     0x4f, 0x4f, 0x59, 0x4f, 0x4f, 0x77, 0x77, 0x6d, 0x63, 0x59, 0x4f, 0x4f, 0x63, 0x59, 0x4f,
+     0x4f, 0x4f, 0x37, 0x2d, 0x23, 0x77, 0x77, 0x77, 0x77, 0x77, 0x6d, 0x63, 0x59, 0x4f, 0x4f,
+     0x4f, 0x77},
+    {/* EvillyEpisode data */
+     0x76, 0x76, 0x76, 0x6c, 0x62, 0x58, 0x58, 0xd8, 0xe4, 0xda, 0xd0, 0x6e, 0x64, 0xda, 0xd0,
+     0xc6, 0xbc, 0x6c, 0x62, 0x58, 0x58, 0x58, 0x58, 0x58, 0x76, 0x76, 0x6c, 0x62, 0x58, 0x58,
+     0x58, 0x58, 0x58, 0x62, 0x58, 0x58, 0x58, 0x58, 0x58, 0x62, 0x58, 0x58, 0x58, 0x58, 0x58,
+     0x76, 0x76, 0x6c, 0x62, 0x58, 0x58, 0x58, 0x58, 0x58, 0xda, 0xd0, 0xc6, 0xbc, 0x76, 0x76,
+     0x76, 0x76, 0x76, 0x6c, 0x62, 0x58, 0x58, 0x58, 0x76, 0x76, 0x76, 0x76, 0x76, 0x76},
+    {/* TeasingTemper data */
+     0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x6d, 0x63, 0x59, 0x4f, 0x4f, 0x4f, 0x6d, 0x63,
+     0x59, 0x4f, 0x4f, 0x4f, 0x59, 0x4f, 0x4f, 0x4f, 0x77, 0x6d, 0x63, 0x59, 0x4f, 0x4f, 0x4f,
+     0x59, 0x4f, 0x4f, 0x4f, 0x77, 0x6d, 0x63, 0x59, 0x4f, 0x4f, 0x4f, 0x59, 0x4f, 0x4f, 0x4f,
+     0x6d, 0x63, 0x59, 0x4f, 0x4f, 0x4f, 0x77},
+    {/* RatRace data */
+     0x7e, 0x7e, 0x7e, 0x7e, 0x7e, 0x7e, 0x7e, 0x74, 0x6a, 0x60, 0x56, 0x56, 0x56, 0x56, 0x56,
+     0x6a, 0x60, 0x56, 0x56, 0x56, 0x60, 0x56, 0x56, 0x7e, 0x74, 0x6a, 0x60, 0x56, 0x56, 0x56,
+     0x56, 0x56, 0x74, 0x6a, 0x60, 0x56, 0x56, 0x56, 0x56, 0x60, 0x56, 0x56, 0x56, 0x6a, 0x60,
+     0x56, 0x56, 0x56, 0x7e, 0x7e, 0x7e, 0x7e, 0x7e, 0x7e, 0x7e, 0x7e, 0x74, 0x6a, 0x60, 0x56,
+     0x56, 0x56, 0x7e}};
+
+unsigned char opponents_speed_values[NUM_TRACKS][MAX_PIECES_PER_TRACK];
+
+struct OpponentSpeedValuesInitializer {
+    OpponentSpeedValuesInitializer() {
+        memcpy(opponents_speed_values, kClassicStandardOpponentSpeedValues, sizeof(opponents_speed_values));
+    }
+};
+static OpponentSpeedValuesInitializer s_opponentSpeedValuesInitializer;
 
 WCHAR* opponentNames[NUM_OPPONENTS] = {L"Hot Rod     ", L"Whizz Kid   ", L"Bad Guy     ", L"The Dodger  ",
                                        L"Big Ed      ", L"Max Boost   ", L"Dare Devil  ", L"High Flyer  ",
@@ -234,10 +289,17 @@ static bool opponents_required_z_speed_reached;
 
 /** Scale for integration deltas (stepSeconds / PHYSICS_REFERENCE_STEP_SECONDS). */
 static float g_physicsStepScale = 1.0f;
+/* Carry fractional dt-scaled integration deltas between physics steps. */
+static long opponents_z_speed_step_remainder = 0;
+static long opponents_distance_step_remainder = 0;
+static long opponents_lateral_step_remainder = 0;
+static long opp_y_speed_step_remainder[NUM_OPP_WHEEL_POSITIONS] = {0, 0, 0};
+static long opp_actual_height_step_remainder[NUM_OPP_WHEEL_POSITIONS] = {0, 0, 0};
 
 /*    ===================== */
 /*    Function declarations */
 /*    ===================== */
+static long DistributeStepValueWithScale(long full_step_value, float step_scale, long* step_remainder_in_out);
 static void ResetOpponent(void);
 static void CalculateOpponentsRoadWheelPositions(void);
 static void GetSurfaceCoords(long piece, long segment);
@@ -291,9 +353,14 @@ static void ResetOpponent(void) {
 
     for (long i = 0; i < NUM_OPP_WHEEL_POSITIONS; i++) {
         opp_y_speed[i] = 0;
+        opp_y_speed_step_remainder[i] = 0;
+        opp_actual_height_step_remainder[i] = 0;
     }
 
     opponents_z_speed = 0;
+    opponents_z_speed_step_remainder = 0;
+    opponents_distance_step_remainder = 0;
+    opponents_lateral_step_remainder = 0;
     opponents_required_z_speed_reached = FALSE;
 
     player_close_to_opponent = FALSE;
@@ -305,6 +372,20 @@ static void ResetOpponent(void) {
         player_shadow_state[i] = {};
     }
     return;
+}
+
+static long DistributeStepValueWithScale(long full_step_value, float step_scale, long* step_remainder_in_out) {
+    if (step_scale <= 0.0f) {
+        *step_remainder_in_out = 0;
+        return 0;
+    }
+
+    const long scale_fp = static_cast<long>(step_scale * 65536.0f + 0.5f);
+    long long total =
+        static_cast<long long>(*step_remainder_in_out) + (static_cast<long long>(full_step_value) * scale_fp);
+    long substep_value = static_cast<long>(total / 65536ll);
+    *step_remainder_in_out = static_cast<long>(total - (static_cast<long long>(substep_value) * 65536ll));
+    return substep_value;
 }
 
 void CapturePreviousOpponentShadow(void) {
@@ -1236,7 +1317,7 @@ static void OpponentMovement(void) {
     value *= REDUCTION;
     value >>= 8;
     value <<= 3;
-    value = (long)((float)value * g_physicsStepScale);
+    value = DistributeStepValueWithScale(value, g_physicsStepScale, &opponents_distance_step_remainder);
     long byte = value & 0xff;
     value >>= 8;
     byte_count += byte;
@@ -1367,24 +1448,31 @@ static void UpdateOpponentsActualWheelHeights(void) {
     }
 
     // Update rear left wheel y speed and height
-    acceleration = (long)((float)((opp_y_acceleration[REAR_LEFT] * REDUCTION) >> 8) * g_physicsStepScale);
+    acceleration = ((opp_y_acceleration[REAR_LEFT] * REDUCTION) >> 8);
+    acceleration = DistributeStepValueWithScale(acceleration, g_physicsStepScale, &opp_y_speed_step_remainder[REAR_LEFT]);
     opp_y_speed[REAR_LEFT] += acceleration;
 
-    speed = (long)((float)((opp_y_speed[REAR_LEFT] * REDUCTION) >> 9) * g_physicsStepScale);
+    speed = ((opp_y_speed[REAR_LEFT] * REDUCTION) >> 9);
+    speed = DistributeStepValueWithScale(speed, g_physicsStepScale, &opp_actual_height_step_remainder[REAR_LEFT]);
     opp_actual_height[REAR_LEFT] += speed;
 
     // Update rear right wheel y speed and height
-    acceleration = (long)((float)((opp_y_acceleration[REAR_RIGHT] * REDUCTION) >> 8) * g_physicsStepScale);
+    acceleration = ((opp_y_acceleration[REAR_RIGHT] * REDUCTION) >> 8);
+    acceleration =
+        DistributeStepValueWithScale(acceleration, g_physicsStepScale, &opp_y_speed_step_remainder[REAR_RIGHT]);
     opp_y_speed[REAR_RIGHT] += acceleration;
 
-    speed = (long)((float)((opp_y_speed[REAR_RIGHT] * REDUCTION) >> 9) * g_physicsStepScale);
+    speed = ((opp_y_speed[REAR_RIGHT] * REDUCTION) >> 9);
+    speed = DistributeStepValueWithScale(speed, g_physicsStepScale, &opp_actual_height_step_remainder[REAR_RIGHT]);
     opp_actual_height[REAR_RIGHT] += speed;
 
     // Update front wheel y speed and height
-    acceleration = (long)((float)((opp_y_acceleration[FRONT] * REDUCTION) >> 8) * g_physicsStepScale);
+    acceleration = ((opp_y_acceleration[FRONT] * REDUCTION) >> 8);
+    acceleration = DistributeStepValueWithScale(acceleration, g_physicsStepScale, &opp_y_speed_step_remainder[FRONT]);
     opp_y_speed[FRONT] += acceleration;
 
-    speed = (long)((float)((opp_y_speed[FRONT] * REDUCTION) >> 9) * g_physicsStepScale);
+    speed = ((opp_y_speed[FRONT] * REDUCTION) >> 9);
+    speed = DistributeStepValueWithScale(speed, g_physicsStepScale, &opp_actual_height_step_remainder[FRONT]);
     opp_actual_height[FRONT] += speed;
 
     // Limit movement of opponent's wheels
@@ -1552,12 +1640,15 @@ srd114    move.l    #opponents.speed.values,a1
     static long oldpos = -1;
     static long oldtrack = -1;
     static bool oldleague = false;
+    static TrackPack oldpack = TRACK_PACK_CLASSIC;
     static long oldspeed = 0;
-    if (pos == oldpos && oldtrack == track_id && oldleague == bSuperLeague)
+    TrackPack currentPack = GetTrackPack();
+    if (pos == oldpos && oldtrack == track_id && oldleague == bSuperLeague && oldpack == currentPack)
         return oldspeed;
     oldpos = pos;
     oldleague = bSuperLeague;
     oldtrack = track_id;
+    oldpack = currentPack;
 
     long b = Piece_Angle_And_Template[pos];
     b = sections_car_can_be_put_on[b & 0x0f];
@@ -1582,6 +1673,13 @@ srd114    move.l    #opponents.speed.values,a1
 // Amiga table-based behaviour (and allow Track.cpp to tweak the table).
 static long cached_speed_track = -1;
 static bool cached_speed_super_league = false;
+static TrackPack cached_speed_pack = TRACK_PACK_CLASSIC;
+
+static const unsigned char (*GetStandardOpponentSpeedValuesForPack(TrackPack pack))[MAX_PIECES_PER_TRACK] {
+    if (pack == TRACK_PACK_TNT)
+        return kTntStandardOpponentSpeedValues;
+    return kClassicStandardOpponentSpeedValues;
+}
 
 static inline int GetOpponentSpeedValue(long track_id, long pos) {
     // Interpret table entries as signed like the Amiga code does.
@@ -1589,16 +1687,24 @@ static inline int GetOpponentSpeedValue(long track_id, long pos) {
 }
 
 static void EnsureOpponentSpeedValuesForTrack(long track_id) {
-    if (cached_speed_track == track_id && cached_speed_super_league == bSuperLeague)
+    if ((track_id < 0) || (track_id >= NUM_TRACKS))
+        return;
+
+    TrackPack trackPack = GetTrackPack();
+    if (cached_speed_track == track_id && cached_speed_super_league == bSuperLeague && cached_speed_pack == trackPack)
         return;
 
     cached_speed_track = track_id;
     cached_speed_super_league = bSuperLeague;
+    cached_speed_pack = trackPack;
 
-    // Standard league already ships with the baked Amiga tables (and Draw Bridge
-    // mutates them at runtime), so nothing to rebuild here.
-    if (!bSuperLeague)
+    // Standard league uses pack-specific baked tables (Classic/TNT).
+    // Draw Bridge still mutates the active row at runtime.
+    if (!bSuperLeague) {
+        const unsigned char (*table)[MAX_PIECES_PER_TRACK] = GetStandardOpponentSpeedValuesForPack(trackPack);
+        memcpy(opponents_speed_values[track_id], table[track_id], MAX_PIECES_PER_TRACK * sizeof(unsigned char));
         return;
+    }
 
     // Super league values aren't pre-baked; generate them once per track using
     // the original algorithm, then reuse the table every frame.
@@ -1910,7 +2016,8 @@ static void UpdateOpponentsZSpeed(void) {
         a += adjust;
     }
 
-    long acceleration = (long)((float)((a * REDUCTION) >> 8) * g_physicsStepScale);
+    long acceleration = ((a * REDUCTION) >> 8);
+    acceleration = DistributeStepValueWithScale(acceleration, g_physicsStepScale, &opponents_z_speed_step_remainder);
     opponents_z_speed += acceleration;
     if (opponents_z_speed < 0)
         opponents_z_speed = 0;
@@ -2274,11 +2381,6 @@ static void OpponentPlayerInteraction(void) {
     // TO DO: Tidy up, rename variables, remove gotos
     long d0, d1, d2;
     long count, piece;
-    // Per-step lateral slew limit; scale so real-time steering rate is constant across Hz.
-    const long lateral_step = (g_physicsStepScale > 0.0f)
-        ? (long)(9.0f * g_physicsStepScale + 0.5f)
-        : 9L;
-    const long lateral_step_clamped = (lateral_step < 1) ? 1 : lateral_step;
 
     //VALUE2 = players_road_x_position;
     //VALUE3 = rear_wheel_surface_x_position;
@@ -2466,14 +2568,14 @@ opi10:
     if (d0 >= -16)
         goto opi13;
 
-    d0 = -lateral_step_clamped;
+    d0 = DistributeStepValueWithScale(-9, g_physicsStepScale, &opponents_lateral_step_remainder);
     goto opi12;
 
 opi11:
     if (d0 < 16)
         goto opi13;
 
-    d0 = lateral_step_clamped;
+    d0 = DistributeStepValueWithScale(9, g_physicsStepScale, &opponents_lateral_step_remainder);
 
 opi12:
     d0 += opponents_road_x_position & 0xff;
